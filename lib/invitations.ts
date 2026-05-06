@@ -45,6 +45,11 @@ export function isInvitationSetupMissing(error: unknown) {
 	return isMissingRelationError(error) || isMissingColumnOrBucketError(error);
 }
 
-export function getInvitationLink(token: string, origin: string) {
-	return `${origin}/invite/${token}`;
+export function getInvitationLink(
+	token: string,
+	origin: string,
+	inviteType: InvitationType = 'team_member',
+) {
+	const path = inviteType === 'carer' ? 'onboarding' : 'invite';
+	return `${origin}/${path}/${token}`;
 }

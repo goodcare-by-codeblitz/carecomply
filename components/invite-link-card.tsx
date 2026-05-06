@@ -38,7 +38,7 @@ export function InviteLinkCard({
 	const [isManaging, setIsManaging] = useState(false);
 	const inviteLink = useMemo(() => {
 		if (!currentToken || typeof window === 'undefined') return '';
-		return getInvitationLink(currentToken, window.location.origin);
+		return getInvitationLink(currentToken, window.location.origin, 'carer');
 	}, [currentToken]);
 	const isExpired = Boolean(
 		inviteExpiresAt && new Date(inviteExpiresAt) < new Date(),

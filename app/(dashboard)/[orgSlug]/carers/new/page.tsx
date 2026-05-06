@@ -229,7 +229,11 @@ export default function NewCarerPage() {
 
 	const getInviteLink = () => {
 		if (!createdCarer?.inviteToken) return '';
-		return getInvitationLink(createdCarer.inviteToken, window.location.origin);
+		return getInvitationLink(
+			createdCarer.inviteToken,
+			window.location.origin,
+			'carer',
+		);
 	};
 
 	const copyLink = async () => {

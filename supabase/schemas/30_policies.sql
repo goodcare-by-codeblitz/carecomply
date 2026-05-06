@@ -5,6 +5,7 @@ alter table public.roles enable row level security;
 alter table public.role_permissions enable row level security;
 alter table public.organization_memberships enable row level security;
 alter table public.carers enable row level security;
+alter table public.carer_references enable row level security;
 alter table public.document_types enable row level security;
 alter table public.documents enable row level security;
 alter table public.organization_billing enable row level security;

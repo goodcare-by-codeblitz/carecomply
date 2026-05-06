@@ -97,7 +97,21 @@ create table if not exists public.documents (
   expiry_date date,
   uploaded_at timestamptz default now(),
   reviewed_at timestamptz,
-  reviewed_by uuid references public.profiles(id)
+  reviewed_by uuid references public.profiles(id),
+  rejection_reason text,
+  review_notes text
+);
+
+create table if not exists public.carer_references (
+  id uuid primary key default gen_random_uuid(),
+  carer_id uuid not null references public.carers(id) on delete cascade,
+  full_name text not null,
+  email text not null,
+  phone text not null,
+  relationship text not null,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
 );
 
 create table if not exists public.organization_billing (

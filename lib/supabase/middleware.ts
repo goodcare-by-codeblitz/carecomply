@@ -10,7 +10,9 @@ const PUBLIC_PREFIXES = [
   "/api/organizations/slug-availability",
   "/api/invitations/accept",
   "/api/invitations/details",
+  "/api/onboarding",
   "/invite",
+  "/onboarding",
 ];
 const ONBOARDING_PATHS = ["/select-org", "/create-org"];
 const DASHBOARD_SECTIONS = new Set([

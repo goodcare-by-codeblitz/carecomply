@@ -115,6 +115,12 @@ export function InviteClient({ token }: InviteClientProps) {
 			}).toString()}`
 		: '/auth/login';
 
+	useEffect(() => {
+		if (invitation?.invite_type === 'carer' && inviteToken) {
+			router.replace(`/onboarding/${inviteToken}`);
+		}
+	}, [invitation?.invite_type, inviteToken, router]);
+
 	const acceptInvitation = async () => {
 		if (!inviteToken || !invitation) return;
 		setError(null);
@@ -284,10 +290,18 @@ export function InviteClient({ token }: InviteClientProps) {
 									</div>
 								</div>
 							) : inviteState === 'pending' ? (
-								<p className='text-sm text-muted-foreground'>
-									This invitation is for carer onboarding and cannot create
-									dashboard access.
-								</p>
+								<div className='space-y-3'>
+									<p className='text-sm text-muted-foreground'>
+										This invitation is for carer onboarding.
+									</p>
+									{inviteToken && (
+										<Button asChild>
+											<Link href={`/onboarding/${inviteToken}`}>
+												Continue to onboarding
+											</Link>
+										</Button>
+									)}
+								</div>
 							) : (
 								<p className='text-sm text-muted-foreground'>
 									This invitation cannot be accepted because it is {inviteState}.

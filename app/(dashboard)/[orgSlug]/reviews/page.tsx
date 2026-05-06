@@ -64,7 +64,6 @@ type Document = {
 		id: string;
 		full_name: string;
 		email: string;
-		invite_token?: string | null;
 	};
 	document_types: {
 		name: string;
@@ -192,7 +191,6 @@ export default function ReviewsPage() {
 						carerName: selectedDoc.carers.full_name,
 						documentType: selectedDoc.document_types.name,
 						rejectionReason: rejectionReason,
-						inviteToken: selectedDoc.carers.invite_token,
 					}),
 				});
 
