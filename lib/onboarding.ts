@@ -153,39 +153,72 @@ export async function updateCarerOnboardingProgress(
 	admin: SupabaseAdminClient,
 	carerId: string,
 	organizationId: string,
+	options: { preserveEmploymentStatus?: boolean } = {},
 ) {
-	const [{ data: requiredTypes }, { data: documents }] = await Promise.all([
-		admin
-			.from('document_types')
-			.select('id')
-			.eq('organization_id', organizationId)
-			.eq('is_required', true),
-		admin
-			.from('documents')
-			.select('document_type_id, status')
-			.eq('carer_id', carerId)
-			.neq('status', 'rejected'),
-	]);
+	const [{ data: carer }, { data: requiredTypes }, { data: documents }] =
+		await Promise.all([
+			admin.from('carers').select('status').eq('id', carerId).maybeSingle(),
+			admin
+				.from('document_types')
+				.select('id')
+				.eq('organization_id', organizationId)
+				.eq('is_required', true),
+			admin
+				.from('documents')
+				.select('document_type_id, status, expiry_date')
+				.eq('carer_id', carerId),
+		]);
 
 	const requiredIds = new Set((requiredTypes ?? []).map((type) => type.id));
-	const uploadedRequiredIds = new Set(
-		(documents ?? [])
-			.map((document) => document.document_type_id)
-			.filter((id) => requiredIds.has(id)),
-	);
+	const approvedRequiredIds = new Set<string>();
+	let hasSubmittedRequiredDocument = false;
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+
+	(documents ?? []).forEach((document) => {
+		if (!requiredIds.has(document.document_type_id)) return;
+		if (document.status === 'obsolete') return;
+
+		hasSubmittedRequiredDocument = true;
+
+		const expiryDate = document.expiry_date
+			? new Date(document.expiry_date)
+			: null;
+		if (expiryDate) {
+			expiryDate.setHours(0, 0, 0, 0);
+		}
+		const isUnexpired = !expiryDate || expiryDate >= today;
+
+		if (document.status === 'approved' && isUnexpired) {
+			approvedRequiredIds.add(document.document_type_id);
+		}
+	});
+
 	const progress =
 		requiredIds.size === 0
-			? 100
-			: Math.round((uploadedRequiredIds.size / requiredIds.size) * 100);
+			? 0
+			: Math.round((approvedRequiredIds.size / requiredIds.size) * 100);
+	const status =
+		requiredIds.size === 0 || !hasSubmittedRequiredDocument
+			? 'pending'
+			: approvedRequiredIds.size === requiredIds.size
+				? 'active'
+				: 'incomplete';
+	const shouldPreserveEmploymentStatus =
+		options.preserveEmploymentStatus !== false &&
+		(carer?.status === 'on_leave' || carer?.status === 'former');
 
 	await admin
 		.from('carers')
 		.update({
 			onboarding_progress: progress,
-			status: progress === 100 ? 'active' : 'incomplete',
+			...(shouldPreserveEmploymentStatus ? {} : { status }),
 			updated_at: new Date().toISOString(),
 		})
 		.eq('id', carerId);
 
-	return progress;
+	return {
+		progress,
+		status: shouldPreserveEmploymentStatus ? carer?.status : status,
+	};
 }

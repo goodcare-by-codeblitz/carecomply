@@ -1,4 +1,5 @@
 import { PERMISSIONS } from '@/lib/permissions';
+import { createUserAuditLog } from '@/lib/audit-server';
 import { createClient } from '@/lib/supabase/server';
 import { getStripe } from '@/lib/stripe';
 import { NextResponse } from 'next/server';
@@ -77,7 +78,22 @@ export async function POST(request: Request) {
 		customer: billing.stripe_customer_id,
 		configuration:
 			process.env.STRIPE_BILLING_PORTAL_CONFIGURATION_ID || undefined,
-		return_url: `${origin}/${organization.slug}/settings`,
+		return_url: `${origin}/${organization.slug}/settings/billing`,
+	});
+
+	await createUserAuditLog({
+		action: 'billing.portal_opened',
+		entityType: 'billing',
+		organizationId: organization.id,
+		entityId: organization.id,
+		entityName: 'Stripe Billing Portal',
+		details: {
+			stripe_customer_id: billing.stripe_customer_id,
+			stripe_billing_portal_session_id: session.id,
+			permission_checked: PERMISSIONS.BILLING_MANAGE,
+			outcome: 'billing_portal_session_created',
+		},
+		request,
 	});
 
 	return NextResponse.json({ ok: true, url: session.url });

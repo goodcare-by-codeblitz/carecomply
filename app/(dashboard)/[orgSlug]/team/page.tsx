@@ -3,6 +3,17 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -44,9 +55,9 @@ import {
 	type InvitationStatus,
 	type OrganizationInvitation,
 } from '@/lib/invitations';
+import { logAction } from '@/lib/audit';
 import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/client';
-import { cn } from '@/lib/utils';
 import {
 	Copy,
 	Loader2,
@@ -88,6 +99,11 @@ type MembershipActionResponse = {
 		deleted_at?: string | null;
 	};
 	role?: Role;
+};
+
+type ManageInvitationResponse = {
+	error?: string;
+	invitation?: OrganizationInvitation;
 };
 
 type CurrentOrg = {
@@ -387,6 +403,21 @@ export default function TeamPage() {
 		setInvitations((current) => [data as OrganizationInvitation, ...current]);
 		setInviteEmail('');
 		setIsInviteOpen(false);
+		await logAction({
+			orgId: organization.id,
+			action: 'team.invited',
+			entityType: 'invitation',
+			entityId: data.id,
+			entityName: data.email,
+			details: {
+				email: data.email,
+				role_id: selectedInviteRole.id,
+				role_name: selectedInviteRole.name,
+				invite_type: 'team_member',
+				expires_at: data.expires_at,
+				outcome: 'team_invitation_created',
+			},
+		});
 		const emailResult = await sendInviteEmail({
 			email: data.email,
 			token: data.token,
@@ -403,38 +434,36 @@ export default function TeamPage() {
 	};
 
 	const resendInvite = async (invitationId: string) => {
-		const token = createInvitationToken();
 		const existingInvitation = invitations.find(
 			(invite) => invite.id === invitationId,
 		);
-		const supabase = createClient();
-		const { data, error } = await supabase
-			.from('organization_invitations')
-			.update({
-				token,
-				status: 'pending',
-				expires_at: getInviteExpiry(),
-				revoked_at: null,
-			})
-			.eq('id', invitationId)
-			.select('*')
-			.single();
+		const response = await fetch('/api/invitations/manage', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				invitationId,
+				action: 'reinvite',
+			}),
+		});
+		const payload = (await response.json()) as ManageInvitationResponse;
 
-		if (error) {
+		if (!response.ok || !payload.invitation) {
 			toast.error('Invitation could not be resent');
 			return;
 		}
 
 		setInvitations((current) =>
 			current.map((invite) =>
-				invite.id === invitationId ? (data as OrganizationInvitation) : invite,
+				invite.id === invitationId
+					? (payload.invitation as OrganizationInvitation)
+					: invite,
 			),
 		);
 		const emailResult = await sendInviteEmail({
-			email: data.email,
-			token: data.token,
+			email: payload.invitation.email,
+			token: payload.invitation.token,
 			roleName:
-				roles.find((role) => role.id === data.role_id)?.name ??
+				roles.find((role) => role.id === payload.invitation?.role_id)?.name ??
 				roles.find((role) => role.id === existingInvitation?.role_id)?.name,
 		});
 
@@ -448,26 +477,26 @@ export default function TeamPage() {
 	};
 
 	const revokeInvite = async (invitationId: string) => {
-		const supabase = createClient();
-		const { data, error } = await supabase
-			.from('organization_invitations')
-			.update({
-				status: 'revoked',
-				revoked_at: new Date().toISOString(),
-				revoked_by: currentUserId,
-			})
-			.eq('id', invitationId)
-			.select('*')
-			.single();
+		const response = await fetch('/api/invitations/manage', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				invitationId,
+				action: 'revoke',
+			}),
+		});
+		const payload = (await response.json()) as ManageInvitationResponse;
 
-		if (error) {
-			toast.error('Invitation could not be revoked');
+		if (!response.ok || !payload.invitation) {
+			toast.error(payload.error ?? 'Invitation could not be revoked');
 			return;
 		}
 
 		setInvitations((current) =>
 			current.map((invite) =>
-				invite.id === invitationId ? (data as OrganizationInvitation) : invite,
+				invite.id === invitationId
+					? (payload.invitation as OrganizationInvitation)
+					: invite,
 			),
 		);
 		toast.success('Invitation revoked');
@@ -627,15 +656,37 @@ export default function TeamPage() {
 											</Select>
 										</TableCell>
 										<TableCell className='text-right'>
-											<Button
-												type='button'
-												variant='ghost'
-												size='icon'
-												disabled={isCurrentUser}
-												onClick={() => removeMember(member.id)}
-												aria-label='Remove member'>
-												<UserMinus className='h-4 w-4' />
-											</Button>
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button
+														type='button'
+														variant='ghost'
+														size='icon'
+														disabled={isCurrentUser}
+														aria-label='Remove member'>
+														<UserMinus className='h-4 w-4' />
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>
+															Remove this team member?
+														</AlertDialogTitle>
+														<AlertDialogDescription>
+															This removes dashboard access for {label}, but keeps
+															their profile and activity history.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<AlertDialogAction
+															variant='destructive'
+															onClick={() => removeMember(member.id)}>
+															Remove member
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
 										</TableCell>
 									</TableRow>
 								);
@@ -690,32 +741,59 @@ export default function TeamPage() {
 										<Button
 											type='button'
 											variant='outline'
-											size='icon'
+											size='sm'
 											disabled={!invite.token}
 											onClick={() => copyInviteLink(invite.token)}
 											aria-label='Copy invitation link'>
 											<Copy className='h-4 w-4' />
+											Copy
 										</Button>
 										<Button
 											type='button'
 											variant='outline'
-											size='icon'
+											size='sm'
 											onClick={() => resendInvite(invite.id)}
-											aria-label='Resend invitation'>
+											aria-label={
+												invite.status === 'revoked'
+													? 'Reinvite team member'
+													: 'Resend invitation'
+											}>
 											<RefreshCw className='h-4 w-4' />
+											{invite.status === 'revoked' ? 'Reinvite' : 'Resend'}
 										</Button>
-										<Button
-											type='button'
-											variant='ghost'
-											size='icon'
-											className={cn(
-												invite.status === 'revoked' && 'opacity-50',
-											)}
-											disabled={invite.status === 'revoked'}
-											onClick={() => revokeInvite(invite.id)}
-											aria-label='Revoke invitation'>
-											<Trash2 className='h-4 w-4' />
-										</Button>
+										<AlertDialog>
+											<AlertDialogTrigger asChild>
+												<Button
+													type='button'
+													variant='ghost'
+													size='sm'
+													disabled={invite.status === 'revoked'}
+													aria-label='Revoke invitation'>
+													<Trash2 className='h-4 w-4' />
+													Revoke
+												</Button>
+											</AlertDialogTrigger>
+											<AlertDialogContent>
+												<AlertDialogHeader>
+													<AlertDialogTitle>
+														Revoke this invitation?
+													</AlertDialogTitle>
+													<AlertDialogDescription>
+														The current invitation link for {invite.email} will stop
+														working immediately. You can reinvite them later with a
+														new link.
+													</AlertDialogDescription>
+												</AlertDialogHeader>
+												<AlertDialogFooter>
+													<AlertDialogCancel>Cancel</AlertDialogCancel>
+													<AlertDialogAction
+														variant='destructive'
+														onClick={() => revokeInvite(invite.id)}>
+														Revoke invitation
+													</AlertDialogAction>
+												</AlertDialogFooter>
+											</AlertDialogContent>
+										</AlertDialog>
 									</div>
 								</div>
 							))}

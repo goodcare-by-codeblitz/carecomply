@@ -5,6 +5,7 @@ import {
 	type BillingInterval,
 	type BillingPlan,
 } from '@/lib/billing';
+import { createUserAuditLog } from '@/lib/audit-server';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getStripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
@@ -159,8 +160,8 @@ export async function POST(request: Request) {
 		line_items: [{ price: priceId, quantity: 1 }],
 		allow_promotion_codes: true,
 		billing_address_collection: 'auto',
-		success_url: `${origin}/${organization.slug}/settings?billing=success`,
-		cancel_url: `${origin}/${organization.slug}/settings?billing=cancelled`,
+		success_url: `${origin}/${organization.slug}/settings/billing?billing=success`,
+		cancel_url: `${origin}/${organization.slug}/settings/billing?billing=cancelled`,
 		custom_text: {
 			submit: {
 				message:
@@ -183,7 +184,25 @@ export async function POST(request: Request) {
 		},
 	});
 
-	console.log('Created Stripe checkout session', session);
+	await createUserAuditLog({
+		action: 'billing.checkout_started',
+		entityType: 'billing',
+		organizationId: organization.id,
+		entityId: organization.id,
+		entityName: `${plan.name} ${interval}`,
+		details: {
+			plan: plan.id,
+			plan_name: plan.name,
+			interval,
+			stripe_checkout_session_id: session.id,
+			stripe_customer_id: billing?.stripe_customer_id ?? null,
+			stripe_price_id: priceId,
+			permission_checked: PERMISSIONS.BILLING_MANAGE,
+			outcome: 'checkout_session_created',
+		},
+		request,
+	});
+
 	return NextResponse.json({ ok: true, url: session.url });
 }
 

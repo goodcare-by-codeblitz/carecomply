@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin';
+import { createAuditLog } from '@/lib/audit-server';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
@@ -215,6 +216,25 @@ export async function POST(request: Request) {
 			{ status: 500 },
 		);
 	}
+
+	await createAuditLog({
+		action: 'invitation.accepted',
+		entityType: 'invitation',
+		organizationId: invite.organization_id,
+		entityId: invite.id,
+		entityName: inviteEmail,
+		source: 'api',
+		userId: acceptedUserId,
+		userEmail: inviteEmail,
+		request,
+		details: {
+			invite_type: invite.invite_type,
+			role_id: invite.role_id,
+			accepted_user_id: acceptedUserId,
+			created_user: !currentUser,
+			outcome: 'team_invitation_accepted',
+		},
+	});
 
 	return NextResponse.json({
 		ok: true,

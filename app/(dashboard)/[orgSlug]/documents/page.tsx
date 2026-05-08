@@ -26,6 +26,7 @@ interface Document {
 	uploaded_at: string;
 	carer_id: string;
 	document_type_id: string;
+	superseded_at: string | null;
 	carers: { full_name: string } | null;
 	document_types: { name: string } | null;
 }
@@ -103,7 +104,9 @@ export default function DocumentsPage() {
 		const matchesCarer =
 			selectedCarer === 'all' || doc.carer_id === selectedCarer;
 		const matchesStatus =
-			selectedStatus === 'all' || doc.status === selectedStatus;
+			selectedStatus === 'all'
+				? doc.status !== 'obsolete'
+				: doc.status === selectedStatus;
 		const matchesSearch =
 			searchQuery === '' ||
 			doc.file_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -114,6 +117,14 @@ export default function DocumentsPage() {
 
 		return matchesCarer && matchesStatus && matchesSearch;
 	});
+	const currentDocumentCountByType = documents.reduce<Record<string, number>>(
+		(counts, doc) => {
+			if (doc.status === 'obsolete') return counts;
+			counts[doc.document_type_id] = (counts[doc.document_type_id] ?? 0) + 1;
+			return counts;
+		},
+		{},
+	);
 
 	return (
 		<div className='p-8 max-w-7xl mx-auto'>
@@ -147,7 +158,7 @@ export default function DocumentsPage() {
 							<CardContent className='p-5'>
 								<p className='text-sm text-muted-foreground'>{type.name}</p>
 								<p className='text-2xl font-semibold mt-1'>
-									{type.documents?.[0]?.count || 0}
+									{currentDocumentCountByType[type.id] ?? 0}
 								</p>
 								<p className='text-xs text-muted-foreground mt-1'>
 									{type.expiry_months
@@ -197,6 +208,7 @@ export default function DocumentsPage() {
 						<SelectItem value='approved'>Approved</SelectItem>
 						<SelectItem value='rejected'>Rejected</SelectItem>
 						<SelectItem value='expired'>Expired</SelectItem>
+						<SelectItem value='obsolete'>History</SelectItem>
 					</SelectContent>
 				</Select>
 
@@ -302,21 +314,24 @@ export default function DocumentsPage() {
 																? 'bg-red-50 text-red-700'
 																: 'bg-muted text-muted-foreground'
 												}`}>
-												{doc.status.charAt(0).toUpperCase() +
-													doc.status.slice(1)}
+												{doc.status === 'obsolete'
+													? 'History'
+													: doc.status.charAt(0).toUpperCase() +
+														doc.status.slice(1)}
 											</span>
 											<p className='text-xs text-muted-foreground'>
 												{new Date(doc.uploaded_at).toLocaleDateString()}
 											</p>
-											{/* <Button
-												variant='ghost'
-												size='icon'
-												onClick={() => {
-													setViewerDoc(doc);
-													setViewerOpen(true);
-												}}>
-												<Eye className='w-4 h-4' />
-											</Button> */}
+											<Button variant='ghost' size='sm' asChild>
+												<a
+													href={`/api/documents/file?documentId=${encodeURIComponent(
+														doc.id,
+													)}`}
+													target='_blank'
+													rel='noopener noreferrer'>
+													View
+												</a>
+											</Button>
 										</div>
 									</div>
 								);

@@ -100,6 +100,17 @@ const emptyReference = (): ReferenceRow => ({
 	notes: '',
 });
 
+function isDocumentUnexpired(document: Pick<UploadedDoc, 'expiry_date'>) {
+	if (!document.expiry_date) return true;
+
+	const today = new Date();
+	today.setHours(0, 0, 0, 0);
+	const expiryDate = new Date(document.expiry_date);
+	expiryDate.setHours(0, 0, 0, 0);
+
+	return expiryDate >= today;
+}
+
 export function OnboardingClient() {
 	const { token } = useParams<{ token: string }>();
 	const [carer, setCarer] = useState<Carer | null>(null);
@@ -172,36 +183,55 @@ export function OnboardingClient() {
 		loadOnboarding();
 	}, [loadOnboarding]);
 
-	const getDocTypeById = (id: string) => documentTypes.find((type) => type.id === id);
-	const getDocStatus = (id: string) =>
-		uploadedDocs.find((doc) => doc.document_type_id === id);
-	const isDocTypeUploaded = (id: string) =>
-		uploadedDocs.some(
-			(doc) => doc.document_type_id === id && doc.status !== 'rejected',
+	const documentsByType = uploadedDocs.reduce<Record<string, UploadedDoc[]>>(
+		(groups, doc) => {
+			if (doc.status === 'obsolete') return groups;
+			groups[doc.document_type_id] = groups[doc.document_type_id] ?? [];
+			groups[doc.document_type_id].push(doc);
+			return groups;
+		},
+		{},
+	);
+	const getDocTypeById = (id: string) =>
+		documentTypes.find((type) => type.id === id);
+	const getDocsForType = (id: string) => documentsByType[id] ?? [];
+	const getEffectiveDocStatus = (id: string) => {
+		const docs = getDocsForType(id);
+		const approvedDoc = docs.find(
+			(doc) => doc.status === 'approved' && isDocumentUnexpired(doc),
+		);
+		if (approvedDoc) return approvedDoc;
+
+		return docs.find((doc) => doc.status !== 'rejected') ?? docs[0] ?? null;
+	};
+	const isDocTypeCompliant = (id: string) =>
+		getDocsForType(id).some(
+			(doc) => doc.status === 'approved' && isDocumentUnexpired(doc),
 		);
 	const rejectedDocs = uploadedDocs.filter((doc) => doc.status === 'rejected');
 	const requiredTypes = documentTypes.filter((type) => type.is_required);
 	const uploadedRequiredCount = requiredTypes.filter((type) =>
-		isDocTypeUploaded(type.id),
+		isDocTypeCompliant(type.id),
 	).length;
 	const progress =
 		requiredTypes.length > 0
 			? Math.round((uploadedRequiredCount / requiredTypes.length) * 100)
 			: 100;
+
 	const selectedDocumentType = selectedType
 		? getDocTypeById(selectedType)
 		: null;
 	const selectedTypeHasExistingDoc = selectedType
-		? Boolean(getDocStatus(selectedType))
+		? getDocsForType(selectedType).length > 0
 		: false;
 	const hasAllRequiredDocuments = progress === 100;
 
 	const documentOptions = documentTypes.map((type) => {
-		const latest = getDocStatus(type.id);
+		const latest = getEffectiveDocStatus(type.id);
 		const suffix =
 			latest?.status === 'rejected'
 				? ' (re-upload)'
-				: latest
+				: getDocsForType(type.id).length > 0
 					? ' (replace)'
 					: '';
 		return {
@@ -260,7 +290,9 @@ export function OnboardingClient() {
 
 			setUploadedDocs((prev) => [payload.document!, ...prev]);
 			setCarer((prev) =>
-				prev ? { ...prev, onboarding_progress: payload.progress ?? progress } : prev,
+				prev
+					? { ...prev, onboarding_progress: payload.progress ?? progress }
+					: prev,
 			);
 			toast.success('Document uploaded successfully');
 			setFile(null);
@@ -301,13 +333,15 @@ export function OnboardingClient() {
 				body: JSON.stringify({
 					token,
 					carerPhone,
-					references: references.map(({ fullName, email, phone, relationship, notes }) => ({
-						fullName,
-						email,
-						phone,
-						relationship,
-						notes,
-					})),
+					references: references.map(
+						({ fullName, email, phone, relationship, notes }) => ({
+							fullName,
+							email,
+							phone,
+							relationship,
+							notes,
+						}),
+					),
 				}),
 			});
 			const payload = (await response.json()) as {
@@ -337,7 +371,9 @@ export function OnboardingClient() {
 		} catch (err) {
 			console.error(err);
 			toast.error(
-				err instanceof Error ? err.message : 'Reference details could not be saved',
+				err instanceof Error
+					? err.message
+					: 'Reference details could not be saved',
 			);
 		} finally {
 			setIsSavingReferences(false);
@@ -495,8 +531,8 @@ export function OnboardingClient() {
 							Required Documents
 						</h2>
 						{documentTypes.map((docType) => {
-							const isUploaded = isDocTypeUploaded(docType.id);
-							const docStatus = getDocStatus(docType.id);
+							const isUploaded = isDocTypeCompliant(docType.id);
+							const docStatus = getEffectiveDocStatus(docType.id);
 							const isRejected = docStatus?.status === 'rejected';
 							return (
 								<div
@@ -587,20 +623,23 @@ export function OnboardingClient() {
 								)}
 							</div>
 
-							{selectedDocumentType?.expiry_months && (
-								<div className='space-y-2'>
-									<Label>Expiry Date</Label>
-									<Input
-										type='date'
-										value={expiryDate}
-										onChange={(event) => setExpiryDate(event.target.value)}
-										className='h-11'
-									/>
-									<p className='text-xs text-muted-foreground'>
-										Enter the expiry date shown on your document.
-									</p>
-								</div>
-							)}
+							<div className='space-y-2'>
+								<Label>Expiry Date</Label>
+								<Input
+									type='date'
+									value={expiryDate}
+									onChange={(event) => setExpiryDate(event.target.value)}
+									className='h-11'
+									disabled={!selectedDocumentType}
+								/>
+								<p className='text-xs text-muted-foreground'>
+									{!selectedDocumentType
+										? 'Select a document type first, then add an expiry date if one applies.'
+										: selectedDocumentType.expiry_months
+											? 'Enter the expiry date shown on your document.'
+											: 'Leave this blank if the document does not have an expiry date.'}
+								</p>
+							</div>
 
 							<div className='space-y-2'>
 								<Label>File *</Label>
@@ -631,7 +670,9 @@ export function OnboardingClient() {
 										ref={fileInputRef}
 										type='file'
 										className='hidden'
-										onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+										onChange={(event) =>
+											setFile(event.target.files?.[0] ?? null)
+										}
 										accept='.pdf,.jpg,.jpeg,.png,.doc,.docx'
 									/>
 
@@ -705,7 +746,9 @@ export function OnboardingClient() {
 					</CardHeader>
 					<CardContent className='space-y-6'>
 						{references.map((reference, index) => (
-							<div key={reference.id ?? index} className='space-y-4 rounded-lg border p-4'>
+							<div
+								key={reference.id ?? index}
+								className='space-y-4 rounded-lg border p-4'>
 								<div className='flex items-center justify-between gap-3'>
 									<p className='text-sm font-medium'>Reference {index + 1}</p>
 									<Button

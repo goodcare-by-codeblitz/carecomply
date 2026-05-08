@@ -4,6 +4,7 @@ import {
 	OnboardingTokenError,
 	updateCarerOnboardingProgress,
 } from '@/lib/onboarding';
+import { createSystemAuditLog } from '@/lib/audit-server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
@@ -82,7 +83,7 @@ export async function POST(request: Request) {
 
 		const { data: documentType, error: documentTypeError } = await admin
 			.from('document_types')
-			.select('id')
+			.select('id, name, is_required, expiry_months')
 			.eq('id', parsed.data.documentTypeId)
 			.eq('organization_id', context.carer.organization_id)
 			.maybeSingle();
@@ -134,11 +135,62 @@ export async function POST(request: Request) {
 			throw insertError;
 		}
 
-		const progress = await updateCarerOnboardingProgress(
+		const supersededAt = new Date().toISOString();
+		const { data: supersededDocuments, error: supersedeError } = await admin
+			.from('documents')
+			.update({
+				status: 'obsolete',
+				superseded_by: document.id,
+				superseded_at: supersededAt,
+			})
+			.eq('carer_id', context.carer.id)
+			.eq('document_type_id', parsed.data.documentTypeId)
+			.neq('id', document.id)
+			.neq('status', 'obsolete')
+			.select('id, status');
+
+		if (supersedeError) {
+			throw supersedeError;
+		}
+
+		const { progress } = await updateCarerOnboardingProgress(
 			admin,
 			context.carer.id,
 			context.carer.organization_id,
 		);
+
+		await createSystemAuditLog({
+			action: 'document.uploaded',
+			entityType: 'document',
+			organizationId: context.carer.organization_id,
+			entityId: document.id,
+			entityName: `${documentType.name} - ${context.carer.full_name}`,
+			source: 'onboarding',
+			details: {
+				invitation_id: context.invitation.id,
+				invitation_email: context.invitation.email,
+				invitation_expires_at: context.invitation.expires_at,
+				carer_id: context.carer.id,
+				carer_name: context.carer.full_name,
+				carer_email: context.carer.email,
+				document_type_id: documentType.id,
+				document_type_name: documentType.name,
+				is_required: documentType.is_required,
+				expiry_months: documentType.expiry_months,
+				expiry_date: parsed.data.expiryDate ?? null,
+				file_name: file.name,
+				file_size: file.size,
+				file_type: file.type || 'application/octet-stream',
+				status: 'pending',
+				replacement_document_id: document.id,
+				superseded_document_ids:
+					supersededDocuments?.map((superseded) => superseded.id) ?? [],
+				superseded_at: supersededAt,
+				onboarding_progress: progress,
+				outcome: 'carer_uploaded_onboarding_document',
+			},
+			request,
+		});
 
 		return NextResponse.json({ document, progress });
 	} catch (error) {

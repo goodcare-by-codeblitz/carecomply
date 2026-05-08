@@ -25,12 +25,18 @@ function statusClass(status: string) {
 			return 'bg-green-50 text-green-700';
 		case 'pending':
 			return 'bg-amber-50 text-amber-700';
+		case 'on_leave':
+			return 'bg-blue-50 text-blue-700';
 		case 'expired':
 		case 'rejected':
 			return 'bg-red-50 text-red-700';
 		default:
 			return 'bg-muted text-muted-foreground';
 	}
+}
+
+function formatStatus(status: string) {
+	return status.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase());
 }
 
 function initials(name: string) {
@@ -223,11 +229,10 @@ export default async function DashboardPage({ params }: DashboardPageProps) {
 										<div className='text-right'>
 											<span
 												className={`text-xs px-2 py-1 rounded-full ${statusClass(carer.status)}`}>
-												{carer.status.charAt(0).toUpperCase() +
-													carer.status.slice(1)}
+												{formatStatus(carer.status)}
 											</span>
 											<p className='text-xs text-muted-foreground mt-2'>
-												{carer.onboarding_progress ?? 0}% complete
+												{carer.onboarding_progress ?? 0}% approved
 											</p>
 										</div>
 									</Link>

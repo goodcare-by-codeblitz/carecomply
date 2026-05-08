@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server';
+import { createUserAuditLog } from '@/lib/audit-server';
 import { getInvitationLink } from '@/lib/invitations';
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
@@ -10,6 +11,8 @@ type SendInviteEmailRequest = {
 };
 
 type InvitationForEmail = {
+	id: string;
+	organization_id: string;
 	email: string;
 	invite_type: 'team_member' | 'carer';
 	expires_at: string | null;
@@ -41,7 +44,7 @@ export async function POST(request: NextRequest) {
 
 		const { data: invitation, error: inviteError } = await supabase
 			.from('organization_invitations')
-			.select('email, invite_type, expires_at, organizations(name), roles(name)')
+			.select('id, organization_id, email, invite_type, expires_at, organizations(name), roles(name)')
 			.eq('token', token)
 			.eq('email', normalizedEmail)
 			.maybeSingle();
@@ -161,6 +164,22 @@ export async function POST(request: NextRequest) {
 				{ status: 502 },
 			);
 		}
+
+		await createUserAuditLog({
+			action: 'email.sent',
+			entityType: 'email',
+			organizationId: invite.organization_id,
+			entityId: invite.id,
+			entityName: normalizedEmail,
+			details: {
+				email_type: isCarerInvite ? 'carer_onboarding_invite' : 'team_invite',
+				invite_type: invite.invite_type,
+				resend_email_id: emailData?.id ?? null,
+				expires_at: invite.expires_at,
+				outcome: 'invite_email_sent',
+			},
+			request,
+		});
 
 		return NextResponse.json({
 			success: true,

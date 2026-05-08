@@ -20,7 +20,7 @@ import {
 	AlertCircle,
 	Filter,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import {
 	Dialog,
@@ -43,7 +43,6 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getCurrentOrgBySlug } from '@/lib/orgs';
 // import { DocumentViewer } from '@/components/document-viewer'
-// import { logAction } from '@/lib/audit'
 
 const rejectionSchema = z.object({
 	reason: z
@@ -60,15 +59,35 @@ type Document = {
 	uploaded_at: string;
 	rejection_reason: string | null;
 	review_notes: string | null;
+	reviewed_at: string | null;
+	reviewed_by: string | null;
 	carers: {
 		id: string;
 		full_name: string;
 		email: string;
 	};
-	document_types: {
+	document_type: {
+		id: string;
 		name: string;
-	};
+	} | null;
 };
+
+type ReviewResponse = {
+	ok?: boolean;
+	document?: Pick<
+		Document,
+		| 'id'
+		| 'status'
+		| 'reviewed_at'
+		| 'reviewed_by'
+		| 'rejection_reason'
+		| 'review_notes'
+	>;
+	error?: string;
+	emailWarning?: string | null;
+};
+
+const UNKNOWN_DOCUMENT_TYPE = 'Unknown document type';
 
 export default function ReviewsPage() {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
@@ -89,11 +108,7 @@ export default function ReviewsPage() {
 	// const [viewerOpen, setViewerOpen] = useState(false)
 	// const [viewerDoc, setViewerDoc] = useState<Document | null>(null)
 
-	useEffect(() => {
-		fetchDocuments();
-	}, [filter, orgSlug]);
-
-	const fetchDocuments = async () => {
+	const fetchDocuments = useCallback(async () => {
 		setLoading(true);
 		const supabase = createClient();
 		const {
@@ -116,9 +131,10 @@ export default function ReviewsPage() {
 		let query = supabase
 			.from('documents')
 			.select(
-				'*, carers!inner(id, full_name, email, organization_id), document_types(name)',
+				'*, carers!inner(id, full_name, email, organization_id), document_type:document_types!documents_document_type_id_fkey(id, name)',
 			)
 			.eq('carers.organization_id', organization.id)
+			.neq('status', 'obsolete')
 			.order('uploaded_at', { ascending: false });
 
 		if (filter !== 'all') {
@@ -133,7 +149,11 @@ export default function ReviewsPage() {
 			setDocuments(data || []);
 		}
 		setLoading(false);
-	};
+	}, [filter, orgSlug]);
+
+	useEffect(() => {
+		fetchDocuments();
+	}, [fetchDocuments]);
 
 	const handleReview = async () => {
 		if (!selectedDoc || !reviewAction) return;
@@ -147,73 +167,74 @@ export default function ReviewsPage() {
 		}
 
 		setSubmitting(true);
-		const supabase = createClient();
 
 		try {
-			const {
-				data: { user },
-			} = await supabase.auth.getUser();
-
-			const { error } = await supabase
-				.from('documents')
-				.update({
-					status: reviewAction === 'approve' ? 'approved' : 'rejected',
-					reviewed_at: new Date().toISOString(),
-					reviewed_by: user?.id,
-					rejection_reason: reviewAction === 'reject' ? rejectionReason : null,
-					review_notes: reviewNotes || null,
-				})
-				.eq('id', selectedDoc.id);
-
-			if (error) throw error;
-
-			// Log the audit action
-			// await logAction({
-			//   action: reviewAction === 'approve' ? 'document.approved' : 'document.rejected',
-			//   entityType: 'document',
-			//   entityId: selectedDoc.id,
-			//   entityName: `${selectedDoc.document_types.name} - ${selectedDoc.carers.full_name}`,
-			//   details: {
-			//     carerName: selectedDoc.carers.full_name,
-			//     documentType: selectedDoc.document_types.name,
-			//     rejectionReason: reviewAction === 'reject' ? rejectionReason : undefined,
-			//   }
-			// })
-
-			// If rejected, send email to carer
-			if (reviewAction === 'reject') {
-				const emailResponse = await fetch('/api/send-rejection-email', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({
-						carerId: selectedDoc.carers.id,
-						carerEmail: selectedDoc.carers.email,
-						carerName: selectedDoc.carers.full_name,
-						documentType: selectedDoc.document_types.name,
-						rejectionReason: rejectionReason,
-					}),
-				});
-
-				if (!emailResponse.ok) {
-					console.warn(
-						'Failed to send rejection email, but document was rejected',
-					);
-				}
+			const response = await fetch('/api/documents/review', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					documentId: selectedDoc.id,
+					action: reviewAction,
+					rejectionReason:
+						reviewAction === 'reject' ? rejectionReason : undefined,
+					reviewNotes: reviewNotes || undefined,
+				}),
+			});
+			const contentType = response.headers.get('content-type') ?? '';
+			if (!contentType.includes('application/json')) {
+				throw new Error(
+					response.redirected
+						? 'Your session may have expired. Please sign in again and retry the review.'
+						: 'The review endpoint returned an unexpected non-JSON response. Please refresh and try again.',
+				);
 			}
+
+			const payload = (await response.json()) as ReviewResponse;
+
+			if (!response.ok) {
+				throw new Error(payload.error ?? 'Failed to submit review');
+			}
+
+			if (payload.error) {
+				throw new Error(payload.error);
+			}
+
+			const updatedDocument = payload.document ?? {
+				id: selectedDoc.id,
+				status: reviewAction === 'approve' ? 'approved' : 'rejected',
+				reviewed_at: new Date().toISOString(),
+				reviewed_by: null,
+				rejection_reason: reviewAction === 'reject' ? rejectionReason : null,
+				review_notes: reviewNotes || null,
+			};
 
 			toast.success(
 				reviewAction === 'approve'
 					? 'Document approved successfully'
 					: 'Document rejected and carer notified',
 			);
+			if (payload.emailWarning) {
+				toast.warning(payload.emailWarning);
+			}
 
-			// Reset state and refresh
+			setDocuments((currentDocuments) => {
+				if (filter === 'pending') {
+					return currentDocuments.filter(
+						(doc) => doc.id !== updatedDocument.id,
+					);
+				}
+
+				return currentDocuments.map((doc) =>
+					doc.id === updatedDocument.id ? { ...doc, ...updatedDocument } : doc,
+				);
+			});
+
 			setSelectedDoc(null);
 			setReviewAction(null);
 			setRejectionReason('');
 			setReviewNotes('');
 			setErrors({});
-			fetchDocuments();
+			await fetchDocuments();
 		} catch (err) {
 			toast.error(
 				'Failed to submit review',
@@ -229,7 +250,9 @@ export default function ReviewsPage() {
 		const searchLower = search.toLowerCase();
 		return (
 			doc.carers?.full_name?.toLowerCase().includes(searchLower) ||
-			doc.document_types?.name?.toLowerCase().includes(searchLower) ||
+			(doc.document_type?.name ?? UNKNOWN_DOCUMENT_TYPE)
+				.toLowerCase()
+				.includes(searchLower) ||
 			doc.file_name?.toLowerCase().includes(searchLower)
 		);
 	});
@@ -334,7 +357,7 @@ export default function ReviewsPage() {
 										</div>
 										<div>
 											<p className='font-medium text-sm'>
-												{doc.document_types?.name}
+												{doc.document_type?.name ?? UNKNOWN_DOCUMENT_TYPE}
 											</p>
 											<p className='text-xs text-muted-foreground'>
 												{doc.carers?.full_name} &middot; Uploaded{' '}
@@ -395,7 +418,7 @@ export default function ReviewsPage() {
 										Document Type
 									</p>
 									<p className='font-medium'>
-										{selectedDoc.document_types?.name}
+										{selectedDoc.document_type?.name ?? UNKNOWN_DOCUMENT_TYPE}
 									</p>
 								</div>
 								<div>
@@ -420,18 +443,16 @@ export default function ReviewsPage() {
 								</div>
 							</div>
 
-							{/* View document button */}
-							{/* <Button 
-                variant="outline" 
-                className="w-full"
-                onClick={() => {
-                  setViewerDoc(selectedDoc)
-                  setViewerOpen(true)
-                }}
-              >
-                <Eye className="w-4 h-4 mr-2" />
-                View Document
-              </Button> */}
+							<Button variant='outline' className='w-full' asChild>
+								<a
+									href={`/api/documents/file?documentId=${encodeURIComponent(
+										selectedDoc.id,
+									)}`}
+									target='_blank'
+									rel='noopener noreferrer'>
+									View Document
+								</a>
+							</Button>
 
 							{/* Previous rejection reason if any */}
 							{selectedDoc.status === 'rejected' &&

@@ -67,9 +67,12 @@ create table if not exists public.carers (
   email text not null,
   phone text,
   status text default 'pending' check (
-    status in ('pending', 'active', 'expired', 'incomplete')
+    status in ('pending', 'active', 'expired', 'incomplete', 'on_leave', 'former')
   ),
   onboarding_progress integer default 0,
+  status_changed_at timestamptz,
+  status_changed_by uuid references auth.users(id) on delete set null,
+  former_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -92,14 +95,16 @@ create table if not exists public.documents (
   file_path text not null,
   file_size integer,
   status text default 'pending' check (
-    status in ('pending', 'approved', 'rejected', 'expired')
+    status in ('pending', 'approved', 'rejected', 'expired', 'obsolete')
   ),
   expiry_date date,
   uploaded_at timestamptz default now(),
   reviewed_at timestamptz,
   reviewed_by uuid references public.profiles(id),
   rejection_reason text,
-  review_notes text
+  review_notes text,
+  superseded_by uuid references public.documents(id),
+  superseded_at timestamptz
 );
 
 create table if not exists public.carer_references (
@@ -201,6 +206,12 @@ create table if not exists public.audit_logs (
   entity_type text not null,
   entity_id uuid,
   entity_name text,
+  category text,
+  severity text default 'info' check (severity in ('info', 'warning', 'critical')),
+  source text default 'api',
+  cqc_key_question text check (
+    cqc_key_question in ('safe', 'effective', 'caring', 'responsive', 'well_led')
+  ),
   details jsonb not null default '{}'::jsonb,
   ip_address text,
   user_agent text,  

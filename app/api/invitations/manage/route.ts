@@ -1,10 +1,13 @@
 import { PERMISSIONS } from '@/lib/permissions';
+import { createUserAuditLog } from '@/lib/audit-server';
+import { createInvitationToken, getInviteExpiry } from '@/lib/invitations';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 type ManageInvitationRequest = {
 	invitationId?: string;
-	action?: 'revoke' | 'delete';
+	action?: 'revoke' | 'delete' | 'reinvite';
 };
 
 export async function POST(request: Request) {
@@ -35,9 +38,10 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const { data: invitation, error: invitationError } = await supabase
+	const admin = createAdminClient();
+	const { data: invitation, error: invitationError } = await admin
 		.from('organization_invitations')
-		.select('id, organization_id, invite_type')
+		.select('id, organization_id, invite_type, email, status, carer_id, role_id')
 		.eq('id', payload.invitationId)
 		.maybeSingle();
 
@@ -61,13 +65,14 @@ export async function POST(request: Request) {
 	}
 
 	if (payload.action === 'revoke') {
-		const { data, error } = await supabase
+		const now = new Date().toISOString();
+		const { data, error } = await admin
 			.from('organization_invitations')
 			.update({
 				status: 'revoked',
-				revoked_at: new Date().toISOString(),
+				revoked_at: now,
 				revoked_by: user.id,
-				updated_at: new Date().toISOString(),
+				updated_at: now,
 			})
 			.eq('id', payload.invitationId)
 			.select('*')
@@ -80,10 +85,78 @@ export async function POST(request: Request) {
 			);
 		}
 
+		await createUserAuditLog({
+			action: 'invitation.revoked',
+			entityType: 'invitation',
+			organizationId: invitation.organization_id,
+			entityId: invitation.id,
+			entityName: invitation.email,
+			details: {
+				invite_type: invitation.invite_type,
+				email: invitation.email,
+				before: { status: invitation.status },
+				after: { status: 'revoked', revoked_at: now },
+				carer_id: invitation.carer_id,
+				role_id: invitation.role_id,
+				permission_checked: PERMISSIONS.TEAM_INVITE,
+				outcome: 'invite_link_revoked',
+			},
+			request,
+		});
+
 		return NextResponse.json({ ok: true, invitation: data });
 	}
 
-	const { error } = await supabase
+	if (payload.action === 'reinvite') {
+		const now = new Date().toISOString();
+		const { data, error } = await admin
+			.from('organization_invitations')
+			.update({
+				token: createInvitationToken(),
+				status: 'pending',
+				expires_at: getInviteExpiry(invitation.invite_type === 'carer' ? 30 : 7),
+				revoked_at: null,
+				revoked_by: null,
+				accepted_by: null,
+				updated_at: now,
+			})
+			.eq('id', payload.invitationId)
+			.select('*')
+			.single();
+
+		if (error) {
+			return NextResponse.json(
+				{ error: 'Invitation could not be regenerated.' },
+				{ status: 500 },
+			);
+		}
+
+		await createUserAuditLog({
+			action: 'invitation.reinvited',
+			entityType: 'invitation',
+			organizationId: invitation.organization_id,
+			entityId: invitation.id,
+			entityName: invitation.email,
+			details: {
+				invite_type: invitation.invite_type,
+				email: invitation.email,
+				before: { status: invitation.status },
+				after: {
+					status: 'pending',
+					expires_at: data.expires_at,
+				},
+				carer_id: invitation.carer_id,
+				role_id: invitation.role_id,
+				permission_checked: PERMISSIONS.TEAM_INVITE,
+				outcome: 'new_invite_token_generated',
+			},
+			request,
+		});
+
+		return NextResponse.json({ ok: true, invitation: data });
+	}
+
+	const { error } = await admin
 		.from('organization_invitations')
 		.delete()
 		.eq('id', payload.invitationId);

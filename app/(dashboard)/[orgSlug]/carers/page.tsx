@@ -37,7 +37,27 @@ function CarersListSkeleton() {
 	);
 }
 
-async function CarersList({ orgSlug }: { orgSlug: string }) {
+function formatStatus(status: string | null) {
+	if (!status) return 'Unknown';
+	return status.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase());
+}
+
+function statusClass(status: string | null) {
+	if (status === 'active') return 'bg-green-50 text-green-700';
+	if (status === 'pending') return 'bg-amber-50 text-amber-700';
+	if (status === 'expired') return 'bg-red-50 text-red-700';
+	if (status === 'on_leave') return 'bg-blue-50 text-blue-700';
+	if (status === 'former') return 'bg-slate-100 text-slate-700';
+	return 'bg-muted text-muted-foreground';
+}
+
+async function CarersList({
+	orgSlug,
+	view,
+}: {
+	orgSlug: string;
+	view: 'current' | 'former';
+}) {
 	const supabase = await createClient();
 	const {
 		data: { user },
@@ -48,11 +68,18 @@ async function CarersList({ orgSlug }: { orgSlug: string }) {
 	const currentOrg = await resolveOrgAccess(supabase, user.id, orgSlug);
 	if (!currentOrg) notFound();
 
-	const { data: carers } = await supabase
+	let query = supabase
 		.from('carers')
 		.select('*, documents(count)')
 		.eq('organization_id', currentOrg.id)
 		.order('created_at', { ascending: false });
+
+	query =
+		view === 'former'
+			? query.eq('status', 'former')
+			: query.neq('status', 'former');
+
+	const { data: carers } = await query;
 
 	if (!carers || carers.length === 0) {
 		return (
@@ -61,10 +88,13 @@ async function CarersList({ orgSlug }: { orgSlug: string }) {
 					<div className='w-16 h-16 rounded-full bg-muted mx-auto mb-4 flex items-center justify-center'>
 						<Users className='w-8 h-8 text-muted-foreground' />
 					</div>
-					<h3 className='text-lg font-medium mb-2'>No carers yet</h3>
+					<h3 className='text-lg font-medium mb-2'>
+						{view === 'former' ? 'No former employees' : 'No carers yet'}
+					</h3>
 					<p className='text-sm text-muted-foreground mb-6 max-w-sm mx-auto'>
-						Get started by adding your first carer. You can then upload their
-						compliance documents and track their status.
+						{view === 'former'
+							? 'Carers moved from current employees will appear here with their compliance history preserved.'
+							: 'Get started by adding your first carer. You can then upload their compliance documents and track their status.'}
 					</p>
 					{/* <AddFirstCarerButton /> */}
 				</CardContent>
@@ -101,20 +131,11 @@ async function CarersList({ orgSlug }: { orgSlug: string }) {
 										<p className='text-sm font-medium'>
 											{carer.onboarding_progress}%
 										</p>
-										<p className='text-xs text-muted-foreground'>Complete</p>
+										<p className='text-xs text-muted-foreground'>Approved</p>
 									</div>
 									<span
-										className={`text-xs px-3 py-1.5 rounded-full font-medium ${
-											carer.status === 'active'
-												? 'bg-green-50 text-green-700'
-												: carer.status === 'pending'
-													? 'bg-amber-50 text-amber-700'
-													: carer.status === 'expired'
-														? 'bg-red-50 text-red-700'
-														: 'bg-muted text-muted-foreground'
-										}`}>
-										{carer.status.charAt(0).toUpperCase() +
-											carer.status.slice(1)}
+										className={`text-xs px-3 py-1.5 rounded-full font-medium ${statusClass(carer.status)}`}>
+										{formatStatus(carer.status)}
 									</span>
 								</div>
 							</div>
@@ -128,10 +149,14 @@ async function CarersList({ orgSlug }: { orgSlug: string }) {
 
 export default async function CarersPage({
 	params,
+	searchParams,
 }: {
 	params: Promise<{ orgSlug: string }>;
+	searchParams: Promise<{ view?: string }>;
 }) {
 	const { orgSlug } = await params;
+	const { view: rawView } = await searchParams;
+	const view = rawView === 'former' ? 'former' : 'current';
 
 	return (
 		<div className='p-8 max-w-7xl mx-auto'>
@@ -148,15 +173,37 @@ export default async function CarersPage({
 
 			{/* Search */}
 			<div className='mb-6'>
-				<div className='relative max-w-md'>
-					<Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground' />
-					<Input placeholder='Search carers...' className='pl-10 h-11' />
+				<div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+					<div className='relative max-w-md flex-1'>
+						<Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground' />
+						<Input placeholder='Search carers...' className='pl-10 h-11' />
+					</div>
+					<div className='flex rounded-md border p-1'>
+						<Link
+							href={`/${orgSlug}/carers`}
+							className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${
+								view === 'current'
+									? 'bg-foreground text-background'
+									: 'text-muted-foreground hover:text-foreground'
+							}`}>
+							Current
+						</Link>
+						<Link
+							href={`/${orgSlug}/carers?view=former`}
+							className={`rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${
+								view === 'former'
+									? 'bg-foreground text-background'
+									: 'text-muted-foreground hover:text-foreground'
+							}`}>
+							Former Employees
+						</Link>
+					</div>
 				</div>
 			</div>
 
 			{/* Carers list */}
 			<Suspense fallback={<CarersListSkeleton />}>
-				<CarersList orgSlug={orgSlug} />
+				<CarersList orgSlug={orgSlug} view={view} />
 			</Suspense>
 		</div>
 	);

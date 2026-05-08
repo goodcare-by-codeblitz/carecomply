@@ -2,6 +2,7 @@ import {
 	getCarerOnboardingContext,
 	OnboardingTokenError,
 } from '@/lib/onboarding';
+import { createSystemAuditLog } from '@/lib/audit-server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -84,6 +85,28 @@ export async function POST(request: Request) {
 				updated_at: now,
 			})
 			.eq('id', context.carer.id);
+
+		await createSystemAuditLog({
+			action: 'onboarding.references_updated',
+			entityType: 'carer',
+			organizationId: context.carer.organization_id,
+			entityId: context.carer.id,
+			entityName: context.carer.full_name,
+			source: 'onboarding',
+			details: {
+				carer_email: context.carer.email,
+				before: { phone: context.carer.phone },
+				after: {
+					phone: payload.carerPhone || null,
+					reference_count: data?.length ?? 0,
+				},
+				changed_fields: ['phone', 'references'],
+				reference_relationships: payload.references.map(
+					(reference) => reference.relationship,
+				),
+				outcome: 'carer_onboarding_references_saved',
+			},
+		});
 
 		return NextResponse.json({
 			references: data ?? [],

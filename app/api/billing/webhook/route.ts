@@ -4,6 +4,7 @@ import {
 	type BillingPlan,
 	type BillingStatus,
 } from '@/lib/billing';
+import { createSystemAuditLog } from '@/lib/audit-server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getStripe } from '@/lib/stripe';
 import { NextResponse } from 'next/server';
@@ -190,6 +191,23 @@ async function handleCheckoutCompleted(
 
 	if (!subscriptionId) return;
 
+	await createSystemAuditLog({
+		action: 'billing.checkout_completed',
+		entityType: 'billing',
+		organizationId,
+		entityId: organizationId,
+		entityName: 'Stripe Checkout',
+		source: 'stripe_webhook',
+		details: {
+			stripe_checkout_session_id: session.id,
+			stripe_customer_id: getStripeId(session.customer),
+			stripe_subscription_id: subscriptionId,
+			plan,
+			interval,
+			outcome: 'checkout_completed',
+		},
+	});
+
 	const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
 	await handleSubscriptionEvent(supabase, subscription);
 }
@@ -228,6 +246,27 @@ async function handleSubscriptionEvent(
 		trial_end: fromStripeTimestamp(subscription.trial_end),
 		cancel_at_period_end: subscription.cancel_at_period_end,
 	});
+
+	await createSystemAuditLog({
+		action: 'billing.subscription_updated',
+		entityType: 'billing',
+		organizationId,
+		entityId: organizationId,
+		entityName: subscription.id,
+		source: 'stripe_webhook',
+		details: {
+			stripe_subscription_id: subscription.id,
+			stripe_customer_id: getStripeId(subscription.customer),
+			stripe_price_id: priceId,
+			plan,
+			interval,
+			status: mapSubscriptionStatus(subscription.status),
+			cancel_at_period_end: subscription.cancel_at_period_end,
+			current_period_start: fromStripeTimestamp(sub.current_period_start),
+			current_period_end: fromStripeTimestamp(sub.current_period_end),
+			outcome: 'organization_billing_upserted',
+		},
+	});
 }
 
 async function handleInvoicePaymentFailed(
@@ -247,6 +286,31 @@ async function handleInvoicePaymentFailed(
 		.eq('stripe_subscription_id', subscriptionId);
 
 	if (error) throw error;
+
+	const { data: billing } = await supabase
+		.from('organization_billing')
+		.select('organization_id')
+		.eq('stripe_subscription_id', subscriptionId)
+		.maybeSingle();
+
+	if (billing?.organization_id) {
+		await createSystemAuditLog({
+			action: 'billing.invoice_payment_failed',
+			entityType: 'billing',
+			organizationId: billing.organization_id,
+			entityId: billing.organization_id,
+			entityName: invoice.id ?? subscriptionId,
+			source: 'stripe_webhook',
+			severity: 'warning',
+			details: {
+				stripe_invoice_id: invoice.id,
+				stripe_subscription_id: subscriptionId,
+				amount_due: invoice.amount_due,
+				currency: invoice.currency,
+				outcome: 'billing_marked_past_due',
+			},
+		});
+	}
 }
 
 async function upsertOrganizationBilling(

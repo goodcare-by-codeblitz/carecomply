@@ -6,6 +6,7 @@ import { ArrowLeft, Mail, Phone, FileText } from 'lucide-react'
 import Link from 'next/link'
 import { DocumentUploader } from '@/components/document-uploader'
 import { InviteLinkCard } from '@/components/invite-link-card'
+import { CarerStatusActions } from '@/components/carer-status-actions'
 import { resolveOrgAccess } from '@/lib/orgs'
 import { isInvitationSetupMissing } from '@/lib/invitations'
 
@@ -72,6 +73,8 @@ export default async function CarerPage({ params }: CarerPageProps) {
     .map((n: string) => n[0])
     .join('')
     .toUpperCase()
+  const currentDocuments = (documents ?? []).filter((doc) => doc.status !== 'obsolete')
+  const historicalDocuments = (documents ?? []).filter((doc) => doc.status === 'obsolete')
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -106,17 +109,24 @@ export default async function CarerPage({ params }: CarerPageProps) {
             </div>
           </div>
         </div>
-        <span className={`text-sm px-3 py-1.5 rounded-full font-medium ${
-          carer.status === 'active' 
-            ? 'bg-green-50 text-green-700' 
-            : carer.status === 'pending'
-            ? 'bg-amber-50 text-amber-700'
-            : carer.status === 'expired'
-            ? 'bg-red-50 text-red-700'
-            : 'bg-muted text-muted-foreground'
-        }`}>
-          {carer.status.charAt(0).toUpperCase() + carer.status.slice(1)}
-        </span>
+        <div className="flex flex-col items-end gap-3">
+          <span className={`text-sm px-3 py-1.5 rounded-full font-medium ${
+            carer.status === 'active' 
+              ? 'bg-green-50 text-green-700' 
+              : carer.status === 'pending'
+              ? 'bg-amber-50 text-amber-700'
+              : carer.status === 'expired'
+              ? 'bg-red-50 text-red-700'
+              : carer.status === 'on_leave'
+              ? 'bg-blue-50 text-blue-700'
+              : carer.status === 'former'
+              ? 'bg-slate-100 text-slate-700'
+              : 'bg-muted text-muted-foreground'
+          }`}>
+            {carer.status.replace(/_/g, ' ').replace(/^\w/, (char: string) => char.toUpperCase())}
+          </span>
+          <CarerStatusActions carerId={carer.id} status={carer.status} />
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-5">
@@ -130,9 +140,9 @@ export default async function CarerPage({ params }: CarerPageProps) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {documents && documents.length > 0 ? (
+              {currentDocuments.length > 0 ? (
                 <div className="space-y-3">
-                  {documents.map((doc) => (
+                  {currentDocuments.map((doc) => (
                     <div 
                       key={doc.id} 
                       className="flex items-center justify-between p-4 rounded-xl bg-muted/50 border border-border"
@@ -165,7 +175,7 @@ export default async function CarerPage({ params }: CarerPageProps) {
                         </span>
                         <Button variant="ghost" size="sm" asChild>
                           <a 
-                            href={`/api/file?pathname=${encodeURIComponent(doc.file_path)}`} 
+                            href={`/api/documents/file?documentId=${encodeURIComponent(doc.id)}`} 
                             target="_blank"
                             rel="noopener noreferrer"
                           >
@@ -184,6 +194,50 @@ export default async function CarerPage({ params }: CarerPageProps) {
               )}
             </CardContent>
           </Card>
+          {historicalDocuments.length > 0 && (
+            <Card className="mt-6">
+              <CardHeader>
+                <CardTitle className="text-base">Document History</CardTitle>
+                <CardDescription>
+                  Superseded documents retained for audit history
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {historicalDocuments.map((doc) => (
+                    <div 
+                      key={doc.id} 
+                      className="flex items-center justify-between p-4 rounded-xl bg-muted/30 border border-border"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-muted-foreground" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-sm">{doc.document_types?.name}</p>
+                          <p className="text-xs text-muted-foreground">{doc.file_name}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground">
+                          History
+                        </span>
+                        <Button variant="ghost" size="sm" asChild>
+                          <a 
+                            href={`/api/documents/file?documentId=${encodeURIComponent(doc.id)}`} 
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            View
+                          </a>
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Upload sidebar */}

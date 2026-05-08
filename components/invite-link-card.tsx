@@ -2,6 +2,17 @@
 
 import { Button } from '@/components/ui/button';
 import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import {
 	Card,
 	CardContent,
 	CardDescription,
@@ -10,7 +21,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { getInvitationLink, INVITATION_SETUP_MESSAGE } from '@/lib/invitations';
-import { Copy, Link2, Mail, Trash2, XCircle } from 'lucide-react';
+import { Copy, Link2, Mail, RefreshCw, XCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -34,6 +45,7 @@ export function InviteLinkCard({
 	const [copied, setCopied] = useState(false);
 	const [currentToken, setCurrentToken] = useState(inviteToken);
 	const [currentStatus, setCurrentStatus] = useState(inviteStatus);
+	const [currentExpiresAt, setCurrentExpiresAt] = useState(inviteExpiresAt);
 	const [isSending, setIsSending] = useState(false);
 	const [isManaging, setIsManaging] = useState(false);
 	const inviteLink = useMemo(() => {
@@ -41,7 +53,7 @@ export function InviteLinkCard({
 		return getInvitationLink(currentToken, window.location.origin, 'carer');
 	}, [currentToken]);
 	const isExpired = Boolean(
-		inviteExpiresAt && new Date(inviteExpiresAt) < new Date(),
+		currentExpiresAt && new Date(currentExpiresAt) < new Date(),
 	);
 	const canUseInvite = Boolean(
 		inviteId &&
@@ -88,7 +100,7 @@ export function InviteLinkCard({
 		}
 	};
 
-	const manageInvitation = async (action: 'revoke' | 'delete') => {
+	const manageInvitation = async (action: 'revoke' | 'reinvite') => {
 		if (!inviteId) return;
 
 		setIsManaging(true);
@@ -103,7 +115,11 @@ export function InviteLinkCard({
 			});
 			const payload = (await response.json()) as {
 				error?: string;
-				invitation?: { status?: string | null; token?: string | null };
+				invitation?: {
+					status?: string | null;
+					token?: string | null;
+					expires_at?: string | null;
+				};
 			};
 
 			if (!response.ok) {
@@ -111,15 +127,12 @@ export function InviteLinkCard({
 				return;
 			}
 
-			if (action === 'delete') {
-				setCurrentToken(null);
-				setCurrentStatus(null);
-				toast.success('Invitation deleted');
-			} else {
-				setCurrentStatus(payload.invitation?.status ?? 'revoked');
-				setCurrentToken(payload.invitation?.token ?? currentToken);
-				toast.success('Invitation revoked');
-			}
+			setCurrentStatus(payload.invitation?.status ?? null);
+			setCurrentToken(payload.invitation?.token ?? currentToken);
+			setCurrentExpiresAt(payload.invitation?.expires_at ?? currentExpiresAt);
+			toast.success(
+				action === 'reinvite' ? 'Invitation regenerated' : 'Invitation revoked',
+			);
 		} catch {
 			toast.error('Invitation could not be updated');
 		} finally {
@@ -163,9 +176,9 @@ export function InviteLinkCard({
 						Status: {currentStatus}
 					</p>
 				)}
-				{inviteExpiresAt && (
+				{currentExpiresAt && (
 					<p className='text-xs text-muted-foreground'>
-						Expires {new Date(inviteExpiresAt).toLocaleDateString()}.
+						Expires {new Date(currentExpiresAt).toLocaleDateString()}.
 					</p>
 				)}
 				<div className='grid gap-2 sm:grid-cols-3'>
@@ -178,24 +191,48 @@ export function InviteLinkCard({
 						<Mail className='mr-2 h-4 w-4' />
 						{isSending ? 'Sending...' : 'Email'}
 					</Button>
-					<Button
-						type='button'
-						variant='outline'
-						size='sm'
-						disabled={!canUseInvite || isManaging}
-						onClick={() => manageInvitation('revoke')}>
-						<XCircle className='mr-2 h-4 w-4' />
-						Revoke
-					</Button>
-					<Button
-						type='button'
-						variant='outline'
-						size='sm'
-						disabled={!inviteId || isManaging}
-						onClick={() => manageInvitation('delete')}>
-						<Trash2 className='mr-2 h-4 w-4' />
-						Delete
-					</Button>
+					{currentStatus === 'revoked' ? (
+						<Button
+							type='button'
+							variant='outline'
+							size='sm'
+							disabled={!inviteId || isManaging}
+							onClick={() => manageInvitation('reinvite')}>
+							<RefreshCw className='mr-2 h-4 w-4' />
+							Reinvite
+						</Button>
+					) : (
+						<AlertDialog>
+							<AlertDialogTrigger asChild>
+								<Button
+									type='button'
+									variant='outline'
+									size='sm'
+									disabled={!canUseInvite || isManaging}>
+									<XCircle className='mr-2 h-4 w-4' />
+									Revoke
+								</Button>
+							</AlertDialogTrigger>
+							<AlertDialogContent>
+								<AlertDialogHeader>
+									<AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
+									<AlertDialogDescription>
+										The current onboarding link will stop working immediately.
+										You can reinvite {carerName || carerEmail} later with a new
+										link.
+									</AlertDialogDescription>
+								</AlertDialogHeader>
+								<AlertDialogFooter>
+									<AlertDialogCancel>Cancel</AlertDialogCancel>
+									<AlertDialogAction
+										variant='destructive'
+										onClick={() => manageInvitation('revoke')}>
+										Revoke invitation
+									</AlertDialogAction>
+								</AlertDialogFooter>
+							</AlertDialogContent>
+						</AlertDialog>
+					)}
 				</div>
 				{!currentToken && (
 					<p className='text-xs text-muted-foreground'>

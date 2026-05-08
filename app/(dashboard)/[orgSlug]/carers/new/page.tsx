@@ -25,7 +25,7 @@ import {
 	INVITATION_SETUP_MESSAGE,
 	isInvitationSetupMissing,
 } from '@/lib/invitations';
-// import { logAction } from '@/lib/audit'
+import { logAction } from '@/lib/audit';
 
 export default function NewCarerPage() {
 	const [formData, setFormData] = useState<NewCarerInput>({
@@ -170,7 +170,7 @@ export default function NewCarerPage() {
 					invited_by: user.id,
 					expires_at: inviteExpiresAt,
 				})
-				.select('token, expires_at')
+				.select('id, token, expires_at')
 				.single();
 
 			if (inviteError) {
@@ -190,17 +190,37 @@ export default function NewCarerPage() {
 				};
 			}
 
-			// Log the action
-			// await logAction({
-			//   action: 'carer.created',
-			//   entityType: 'carer',
-			//   entityId: carer.id,
-			//   entityName: formData.fullName,
-			//   details: {
-			//     email: formData.email,
-			//     phone: formData.phone || null,
-			//   }
-			// })
+			await logAction({
+				orgId: organization.id,
+				action: 'carer.created',
+				entityType: 'carer',
+				entityId: carer.id,
+				entityName: formData.fullName,
+				details: {
+					email: formData.email.trim().toLowerCase(),
+					phone: formData.phone || null,
+					status: 'pending',
+					onboarding_progress: 0,
+					outcome: 'carer_profile_created',
+				},
+			});
+
+			if (invitation) {
+				await logAction({
+					orgId: organization.id,
+					action: 'carer.invited',
+					entityType: 'invitation',
+					entityId: invitation.id,
+					entityName: formData.email.trim().toLowerCase(),
+					details: {
+						carer_id: carer.id,
+						carer_name: formData.fullName,
+						invite_type: 'carer',
+						expires_at: invitation.expires_at,
+						outcome: 'carer_onboarding_invitation_created',
+					},
+				});
+			}
 
 			setCreatedCarer(inviteData);
 			if (inviteData.inviteToken) {

@@ -10,7 +10,10 @@ const PUBLIC_PREFIXES = [
   "/api/organizations/slug-availability",
   "/api/invitations/accept",
   "/api/invitations/details",
+  "/api/documents/file",
+  "/api/documents/review",
   "/api/onboarding",
+  "/api/settings",
   "/invite",
   "/onboarding",
 ];

@@ -26,6 +26,7 @@ export async function GET(request: Request) {
 						'id, document_type_id, file_name, file_size, status, expiry_date, uploaded_at, rejection_reason',
 					)
 					.eq('carer_id', context.carer.id)
+					.neq('status', 'obsolete')
 					.order('uploaded_at', { ascending: false }),
 				admin
 					.from('carer_references')
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
 					.order('created_at', { ascending: true }),
 			]);
 
-		const progress = await updateCarerOnboardingProgress(
+		const { progress } = await updateCarerOnboardingProgress(
 			admin,
 			context.carer.id,
 			context.carer.organization_id,

@@ -40,6 +40,7 @@ type QueryResponse<T> = {
 
 type QueryBuilder<T> = PromiseLike<QueryResponse<T>> & {
 	eq: (column: string, value: string) => QueryBuilder<T>;
+	neq: (column: string, value: string) => QueryBuilder<T>;
 	gte: (column: string, value: string) => QueryBuilder<T>;
 	lte: (column: string, value: string) => QueryBuilder<T>;
 	not: (column: string, operator: string, value: string | null) => QueryBuilder<T>;
@@ -111,7 +112,8 @@ export async function getOrgScopedDashboardData(
 	const totalCarersQuery = client
 		.from('carers')
 		.select('*', { count: 'exact', head: true })
-		.eq('organization_id', currentOrg.id);
+		.eq('organization_id', currentOrg.id)
+		.neq('status', 'former');
 
 	const activeCarersQuery = client
 		.from('carers')
@@ -137,6 +139,7 @@ export async function getOrgScopedDashboardData(
 		.from('carers')
 		.select('id, full_name, email, status, onboarding_progress, created_at')
 		.eq('organization_id', currentOrg.id)
+		.neq('status', 'former')
 		.order('created_at', { ascending: false })
 		.limit(5);
 

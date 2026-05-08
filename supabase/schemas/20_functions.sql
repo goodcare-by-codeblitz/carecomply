@@ -51,7 +51,7 @@ begin
   insert into public.role_permissions (role_id, permission_id)
   select manager_role_id, id
   from public.permissions
-  where code in ('carers.view', 'carers.create', 'documents.view')
+  where code in ('carers.view', 'carers.create', 'documents.view', 'documents.review')
   on conflict (role_id, permission_id) do nothing;
 
   insert into public.role_permissions (role_id, permission_id)

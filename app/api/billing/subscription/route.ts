@@ -5,6 +5,7 @@ import {
 	type BillingInterval,
 	type BillingPlan,
 } from '@/lib/billing';
+import { createUserAuditLog } from '@/lib/audit-server';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getStripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
@@ -188,6 +189,30 @@ export async function POST(request: Request) {
 			plan: plan.id,
 			interval,
 		},
+	});
+
+	await createUserAuditLog({
+		action: 'billing.subscription_change_requested',
+		entityType: 'billing',
+		organizationId: organization.id,
+		entityId: organization.id,
+		entityName: `${plan.name} ${interval}`,
+		details: {
+			before: {
+				stripe_price_id: item.price.id,
+				stripe_subscription_status: subscription.status,
+			},
+			after: {
+				plan: plan.id,
+				plan_name: plan.name,
+				interval,
+				stripe_price_id: priceId,
+			},
+			stripe_subscription_id: subscription.id,
+			permission_checked: PERMISSIONS.BILLING_MANAGE,
+			outcome: 'subscription_update_submitted_to_stripe',
+		},
+		request,
 	});
 
 	return NextResponse.json({

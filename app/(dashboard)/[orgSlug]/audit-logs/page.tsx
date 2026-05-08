@@ -1,6 +1,5 @@
 'use client';
 
-import { createClient } from '@/lib/supabase/client';
 import {
 	Card,
 	CardContent,
@@ -28,6 +27,7 @@ import {
 	Zap,
 	ChevronLeft,
 	ChevronRight,
+	Download,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import {
@@ -46,7 +46,7 @@ import {
 	TableRow,
 } from '@/components/ui/table';
 import { useParams } from 'next/navigation';
-import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
+import { toast } from 'sonner';
 
 type AuditLog = {
 	id: string;
@@ -57,6 +57,10 @@ type AuditLog = {
 	entity_name: string | null;
 	details: Record<string, unknown>;
 	ip_address: string | null;
+	category: string | null;
+	severity: string | null;
+	source: string | null;
+	cqc_key_question: string | null;
 	created_at: string;
 };
 
@@ -78,6 +82,23 @@ const ACTION_ICONS: Record<string, typeof FileText> = {
 	'settings.updated': Settings,
 	'user.login': User,
 	'user.logout': User,
+	'billing.checkout_started': Settings,
+	'billing.portal_opened': Settings,
+	'billing.subscription_change_requested': Settings,
+	'billing.checkout_completed': CheckCircle,
+	'billing.subscription_updated': CheckCircle,
+	'billing.invoice_payment_failed': XCircle,
+	'carer.marked_former': Trash2,
+	'carer.marked_on_leave': Edit,
+	'carer.returned_from_leave': CheckCircle,
+	'document_type.created': Plus,
+	'document_type.updated': Edit,
+	'document_type.deleted': Trash2,
+	'invitation.revoked': XCircle,
+	'invitation.reinvited': Mail,
+	'onboarding.references_updated': Edit,
+	'team.member_removed': Trash2,
+	'team.role_changed': Edit,
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -98,6 +119,23 @@ const ACTION_LABELS: Record<string, string> = {
 	'settings.updated': 'Updated settings',
 	'user.login': 'Logged in',
 	'user.logout': 'Logged out',
+	'billing.checkout_started': 'Started billing checkout',
+	'billing.portal_opened': 'Opened billing portal',
+	'billing.subscription_change_requested': 'Requested subscription change',
+	'billing.checkout_completed': 'Checkout completed',
+	'billing.subscription_updated': 'Subscription updated',
+	'billing.invoice_payment_failed': 'Invoice payment failed',
+	'carer.marked_former': 'Moved carer to former',
+	'carer.marked_on_leave': 'Marked carer on leave',
+	'carer.returned_from_leave': 'Returned carer from leave',
+	'document_type.created': 'Created document requirement',
+	'document_type.updated': 'Updated document requirement',
+	'document_type.deleted': 'Deleted document requirement',
+	'invitation.revoked': 'Revoked invitation',
+	'invitation.reinvited': 'Reinvited',
+	'onboarding.references_updated': 'Updated onboarding references',
+	'team.member_removed': 'Removed team member',
+	'team.role_changed': 'Changed team role',
 };
 
 const ENTITY_ICONS: Record<string, typeof FileText> = {
@@ -107,6 +145,10 @@ const ENTITY_ICONS: Record<string, typeof FileText> = {
 	organization: Settings,
 	user: User,
 	email: Mail,
+	billing: Settings,
+	document_type: FileText,
+	invitation: Mail,
+	team_member: Users,
 };
 
 export default function AuditLogsPage() {
@@ -115,56 +157,79 @@ export default function AuditLogsPage() {
 	const [loading, setLoading] = useState(true);
 	const [search, setSearch] = useState('');
 	const [entityFilter, setEntityFilter] = useState<string>('all');
+	const [categoryFilter, setCategoryFilter] = useState<string>('all');
+	const [severityFilter, setSeverityFilter] = useState<string>('all');
+	const [cqcFilter, setCqcFilter] = useState<string>('all');
+	const [dateFrom, setDateFrom] = useState('');
+	const [dateTo, setDateTo] = useState('');
 	const [page, setPage] = useState(1);
 	const [totalPages, setTotalPages] = useState(1);
+	const [exporting, setExporting] = useState(false);
 	const pageSize = 20;
 
 	useEffect(() => {
 		fetchLogs();
-	}, [page, entityFilter, orgSlug]);
+	}, [page, entityFilter, categoryFilter, severityFilter, cqcFilter, dateFrom, dateTo, orgSlug]);
 
 	const fetchLogs = async () => {
 		setLoading(true);
-		const supabase = createClient();
-		const {
-			data: { user },
-		} = await supabase.auth.getUser();
+		const response = await fetch(buildAuditUrl());
+		const payload = (await response.json().catch(() => ({}))) as {
+			logs?: AuditLog[];
+			totalPages?: number;
+			error?: string;
+		};
 
-		if (!user) {
-			setLoading(false);
-			return;
-		}
-
-		const organization = await getCurrentOrgBySlug(supabase, user.id, orgSlug);
-
-		if (!organization?.id) {
+		if (!response.ok) {
+			toast.error(payload.error ?? 'Audit logs could not be loaded');
 			setLogs([]);
 			setTotalPages(1);
-			setLoading(false);
-			return;
-		}
-
-		let query = supabase
-			.from('audit_logs')
-			.select('*', { count: 'exact' })
-			.eq('organization_id', organization.id)
-			.order('created_at', { ascending: false })
-			.range((page - 1) * pageSize, page * pageSize - 1);
-
-		if (entityFilter !== 'all') {
-			query = query.eq('entity_type', entityFilter);
-		}
-
-		const { data, error, count } = await query;
-
-		if (isMissingRelationError(error)) {
-			setLogs([]);
-			setTotalPages(1);
-		} else if (!error) {
-			setLogs(data || []);
-			setTotalPages(Math.ceil((count || 0) / pageSize));
+		} else {
+			setLogs(payload.logs ?? []);
+			setTotalPages(payload.totalPages ?? 1);
 		}
 		setLoading(false);
+	};
+
+	const buildAuditUrl = (exportCsv = false) => {
+		const params = new URLSearchParams({
+			orgSlug,
+			page: String(page),
+			pageSize: String(pageSize),
+		});
+		if (exportCsv) params.set('export', 'csv');
+		if (entityFilter !== 'all') params.set('entity_type', entityFilter);
+		if (categoryFilter !== 'all') params.set('category', categoryFilter);
+		if (severityFilter !== 'all') params.set('severity', severityFilter);
+		if (cqcFilter !== 'all') params.set('cqc_key_question', cqcFilter);
+		if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
+		if (dateTo) {
+			const end = new Date(dateTo);
+			end.setHours(23, 59, 59, 999);
+			params.set('dateTo', end.toISOString());
+		}
+		return `/api/audit?${params.toString()}`;
+	};
+
+	const exportAuditLogs = async () => {
+		setExporting(true);
+		try {
+			const response = await fetch(buildAuditUrl(true));
+			if (!response.ok) throw new Error('Export failed');
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `carecomply-cqc-audit-${orgSlug}.csv`;
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(url);
+		} catch {
+			toast.error('Audit export could not be downloaded');
+		} finally {
+			setExporting(false);
+		}
 	};
 
 	const filteredLogs = logs.filter((log) => {
@@ -197,8 +262,8 @@ export default function AuditLogsPage() {
 	};
 
 	const getActionColor = (action: string) => {
-		if (action.includes('approved')) return 'text-green-600 bg-green-50';
-		if (action.includes('rejected') || action.includes('deleted'))
+		if (action.includes('approved') || action.includes('completed')) return 'text-green-600 bg-green-50';
+		if (action.includes('rejected') || action.includes('deleted') || action.includes('failed') || action.includes('removed'))
 			return 'text-red-600 bg-red-50';
 		if (action.includes('created') || action.includes('uploaded'))
 			return 'text-blue-600 bg-blue-50';
@@ -207,18 +272,28 @@ export default function AuditLogsPage() {
 		return 'text-muted-foreground bg-muted';
 	};
 
+	const label = (value: string | null) =>
+		value ? value.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase()) : 'Unspecified';
+
 	return (
 		<div className='p-8 max-w-7xl mx-auto'>
 			{/* Page header */}
-			<div className='mb-8'>
-				<h1 className='text-2xl font-semibold tracking-tight'>Audit Logs</h1>
-				<p className='text-muted-foreground mt-1'>
-					Track all actions performed in your organization.
-				</p>
+			<div className='mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
+				<div>
+					<h1 className='text-2xl font-semibold tracking-tight'>Audit Logs</h1>
+					<p className='text-muted-foreground mt-1'>
+						Track governance, staffing, billing, and compliance evidence for
+						CQC inspection.
+					</p>
+				</div>
+				<Button type='button' variant='outline' onClick={exportAuditLogs} disabled={exporting}>
+					<Download className='mr-2 h-4 w-4' />
+					{exporting ? 'Exporting...' : 'Export CQC CSV'}
+				</Button>
 			</div>
 
 			{/* Filters */}
-			<div className='flex flex-col sm:flex-row gap-4 mb-6'>
+			<div className='grid gap-4 mb-6 lg:grid-cols-[minmax(0,1fr)_repeat(5,160px)]'>
 				<div className='relative flex-1 max-w-md'>
 					<Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground' />
 					<Input
@@ -245,8 +320,50 @@ export default function AuditLogsPage() {
 						<SelectItem value='reminder'>Reminders</SelectItem>
 						<SelectItem value='email'>Emails</SelectItem>
 						<SelectItem value='user'>Users</SelectItem>
+						<SelectItem value='billing'>Billing</SelectItem>
+						<SelectItem value='document_type'>Requirements</SelectItem>
+						<SelectItem value='team_member'>Team Members</SelectItem>
 					</SelectContent>
 				</Select>
+				<Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
+					<SelectTrigger className='h-11'>
+						<SelectValue placeholder='Category' />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value='all'>All Categories</SelectItem>
+						<SelectItem value='billing'>Billing</SelectItem>
+						<SelectItem value='documents'>Documents</SelectItem>
+						<SelectItem value='governance'>Governance</SelectItem>
+						<SelectItem value='onboarding'>Onboarding</SelectItem>
+						<SelectItem value='staffing'>Staffing</SelectItem>
+					</SelectContent>
+				</Select>
+				<Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
+					<SelectTrigger className='h-11'>
+						<SelectValue placeholder='Severity' />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value='all'>All Severity</SelectItem>
+						<SelectItem value='info'>Info</SelectItem>
+						<SelectItem value='warning'>Warning</SelectItem>
+						<SelectItem value='critical'>Critical</SelectItem>
+					</SelectContent>
+				</Select>
+				<Select value={cqcFilter} onValueChange={(v) => { setCqcFilter(v); setPage(1); }}>
+					<SelectTrigger className='h-11'>
+						<SelectValue placeholder='CQC' />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value='all'>All CQC</SelectItem>
+						<SelectItem value='safe'>Safe</SelectItem>
+						<SelectItem value='effective'>Effective</SelectItem>
+						<SelectItem value='caring'>Caring</SelectItem>
+						<SelectItem value='responsive'>Responsive</SelectItem>
+						<SelectItem value='well_led'>Well-led</SelectItem>
+					</SelectContent>
+				</Select>
+				<Input type='date' value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className='h-11' />
+				<Input type='date' value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className='h-11' />
 			</div>
 
 			{/* Logs table */}
@@ -270,6 +387,7 @@ export default function AuditLogsPage() {
 										<TableHead className='w-40'>Time</TableHead>
 										<TableHead>User</TableHead>
 										<TableHead>Action</TableHead>
+										<TableHead>CQC</TableHead>
 										<TableHead>Entity</TableHead>
 										<TableHead className='hidden md:table-cell'>
 											Details
@@ -313,6 +431,14 @@ export default function AuditLogsPage() {
 													</div>
 												</TableCell>
 												<TableCell>
+													<div className='space-y-1 text-xs'>
+														<div className='font-medium'>{label(log.cqc_key_question)}</div>
+														<div className='text-muted-foreground'>
+															{label(log.category)} &middot; {label(log.severity)}
+														</div>
+													</div>
+												</TableCell>
+												<TableCell>
 													<div className='flex items-center gap-2'>
 														<div
 															className={`w-7 h-7 rounded-lg flex items-center justify-center ${actionColor}`}>
@@ -336,11 +462,21 @@ export default function AuditLogsPage() {
 												<TableCell className='hidden md:table-cell'>
 													{log.details &&
 														Object.keys(log.details).length > 0 && (
-															<code className='text-xs bg-muted px-2 py-1 rounded'>
-																{JSON.stringify(log.details).slice(0, 50)}
-																{JSON.stringify(log.details).length > 50 &&
-																	'...'}
-															</code>
+															<div className='max-w-md space-y-1 text-xs'>
+																{Object.entries(log.details)
+																	.filter(([key]) => !['user_agent'].includes(key))
+																	.slice(0, 4)
+																	.map(([key, value]) => (
+																		<div key={key} className='truncate'>
+																			<span className='font-medium'>
+																				{label(key)}:
+																			</span>{' '}
+																			{typeof value === 'object'
+																				? JSON.stringify(value)
+																				: String(value)}
+																		</div>
+																	))}
+															</div>
 														)}
 												</TableCell>
 											</TableRow>

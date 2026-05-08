@@ -1,4 +1,5 @@
 import { PERMISSIONS } from '@/lib/permissions';
+import { createUserAuditLog } from '@/lib/audit-server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
@@ -48,7 +49,7 @@ export async function PATCH(request: Request) {
 	const admin = createAdminClient();
 	const { data: membership, error: membershipError } = await admin
 		.from('organization_memberships')
-		.select('id, user_id, organization_id, role_id, deleted_at')
+		.select('id, user_id, organization_id, role_id, deleted_at, roles(name), profiles(full_name, email)')
 		.eq('id', payload.membershipId)
 		.maybeSingle();
 
@@ -89,6 +90,16 @@ export async function PATCH(request: Request) {
 		}
 
 		const removedAt = new Date().toISOString();
+		const targetProfile = normalizeRelation(
+			(membership as typeof membership & {
+				profiles?: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null;
+			}).profiles,
+		);
+		const targetRole = normalizeRelation(
+			(membership as typeof membership & {
+				roles?: { name: string | null } | { name: string | null }[] | null;
+			}).roles,
+		);
 		const { error } = await admin
 			.from('organization_memberships')
 			.update({
@@ -104,6 +115,46 @@ export async function PATCH(request: Request) {
 				{ status: 500 },
 			);
 		}
+
+		const { count: activeMemberships } = await admin
+			.from('organization_memberships')
+			.select('id', { count: 'exact', head: true })
+			.eq('user_id', targetMembership.user_id)
+			.is('deleted_at', null);
+		const profileSoftDeleted = (activeMemberships ?? 0) === 0;
+
+		if (profileSoftDeleted) {
+			await admin
+				.from('profiles')
+				.update({
+					deleted_at: removedAt,
+					deleted_by: user.id,
+				})
+				.eq('id', targetMembership.user_id)
+				.is('deleted_at', null);
+		}
+
+		await createUserAuditLog({
+			action: 'team.member_removed',
+			entityType: 'team_member',
+			organizationId: targetMembership.organization_id,
+			entityId: targetMembership.id,
+			entityName:
+				targetProfile?.full_name ??
+				targetProfile?.email ??
+				targetMembership.user_id,
+			details: {
+				removed_user_id: targetMembership.user_id,
+				removed_email: targetProfile?.email ?? null,
+				previous_role_id: targetMembership.role_id,
+				previous_role_name: targetRole?.name ?? null,
+				deleted_membership_at: removedAt,
+				profile_soft_deleted: profileSoftDeleted,
+				permission_checked: PERMISSIONS.TEAM_MANAGE,
+				outcome: 'organization_access_removed',
+			},
+			request,
+		});
 
 		return NextResponse.json({
 			ok: true,
@@ -151,9 +202,29 @@ export async function PATCH(request: Request) {
 		);
 	}
 
+	await createUserAuditLog({
+		action: 'team.role_changed',
+		entityType: 'team_member',
+		organizationId: targetMembership.organization_id,
+		entityId: targetMembership.id,
+		entityName: targetMembership.user_id,
+		details: {
+			user_id: targetMembership.user_id,
+			before: { role_id: targetMembership.role_id },
+			after: { role_id: payload.roleId, role_name: role.name },
+			changed_fields: ['role_id'],
+			permission_checked: PERMISSIONS.TEAM_MANAGE,
+		},
+		request,
+	});
+
 	return NextResponse.json({
 		ok: true,
 		membership: updatedMembership,
 		role,
 	});
+}
+
+function normalizeRelation<T>(value: T | T[] | null | undefined) {
+	return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }

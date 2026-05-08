@@ -10,6 +10,7 @@ alter table public.document_types enable row level security;
 alter table public.documents enable row level security;
 alter table public.organization_billing enable row level security;
 alter table public.stripe_events enable row level security;
+alter table public.audit_logs enable row level security;
 
 create policy "Authenticated users can view permissions"
 on public.permissions
@@ -110,6 +111,15 @@ for select
 to authenticated
 using (public.has_org_permission(organization_id, 'carers.view'));
 
+create policy "Document viewers can view organization document types"
+on public.document_types
+for select
+to authenticated
+using (
+  public.has_org_permission(organization_id, 'documents.view')
+  or public.has_org_permission(organization_id, 'documents.review')
+);
+
 create policy "Members can review documents"
 on public.documents
 for update
@@ -166,6 +176,16 @@ using (
   or public.has_org_permission(organization_id, 'billing.manage')
 );
 
+grant select on table public.document_types to authenticated;
 grant select on table public.organization_billing to authenticated;
 grant select, insert, update, delete on table public.organization_billing to service_role;
 grant select, insert, update, delete on table public.stripe_events to service_role;
+
+create policy "Audit viewers can view organization audit logs"
+on public.audit_logs
+for select
+to authenticated
+using (public.has_org_permission(organization_id, 'audit.view'));
+
+grant select on table public.audit_logs to authenticated;
+grant select, insert, update, delete on table public.audit_logs to service_role;
