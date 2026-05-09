@@ -3,7 +3,7 @@ create extension if not exists "pg_cron" with schema "pg_catalog";
 create extension if not exists "wrappers" with schema "extensions";
 
 
-  create table "public"."carers" (
+  create table if not exists "public"."carers" (
     "id" uuid not null default gen_random_uuid(),
     "organization_id" uuid not null,
     "full_name" text not null,
@@ -19,7 +19,7 @@ create extension if not exists "wrappers" with schema "extensions";
 
 
 
-  create table "public"."document_types" (
+  create table if not exists "public"."document_types" (
     "id" uuid not null default gen_random_uuid(),
     "organization_id" uuid not null,
     "name" text not null,
@@ -33,7 +33,7 @@ alter table "public"."carers" enable row level security;
 alter table "public"."document_types" enable row level security;
 
 
-  create table "public"."documents" (
+  create table if not exists "public"."documents" (
     "id" uuid not null default gen_random_uuid(),
     "carer_id" uuid not null,
     "document_type_id" uuid not null,
@@ -51,7 +51,7 @@ alter table "public"."document_types" enable row level security;
 alter table "public"."documents" enable row level security;
 
 
-  create table "public"."organization_memberships" (
+  create table if not exists "public"."organization_memberships" (
     "id" uuid not null default gen_random_uuid(),
     "user_id" uuid,
     "organization_id" uuid,
@@ -63,7 +63,7 @@ alter table "public"."documents" enable row level security;
 alter table "public"."organization_memberships" enable row level security;
 
 
-  create table "public"."organizations" (
+  create table if not exists "public"."organizations" (
     "id" uuid not null default gen_random_uuid(),
     "name" text not null,
     "slug" text not null,
@@ -74,7 +74,7 @@ alter table "public"."organization_memberships" enable row level security;
 alter table "public"."organizations" enable row level security;
 
 
-  create table "public"."permissions" (
+  create table if not exists "public"."permissions" (
     "id" uuid not null default gen_random_uuid(),
     "code" text not null,
     "name" text not null,
@@ -87,7 +87,7 @@ alter table "public"."organizations" enable row level security;
 alter table "public"."permissions" enable row level security;
 
 
-  create table "public"."profiles" (
+  create table if not exists "public"."profiles" (
     "id" uuid not null,
     "full_name" text,
     "avatar_url" text,
@@ -103,7 +103,7 @@ alter table "public"."permissions" enable row level security;
 alter table "public"."profiles" enable row level security;
 
 
-  create table "public"."role_permissions" (
+  create table if not exists "public"."role_permissions" (
     "id" uuid not null default gen_random_uuid(),
     "role_id" uuid not null,
     "permission_id" uuid not null,
@@ -114,7 +114,7 @@ alter table "public"."profiles" enable row level security;
 alter table "public"."role_permissions" enable row level security;
 
 
-  create table "public"."roles" (
+  create table if not exists "public"."roles" (
     "id" uuid not null default gen_random_uuid(),
     "organization_id" uuid,
     "name" text not null,
@@ -127,33 +127,33 @@ alter table "public"."role_permissions" enable row level security;
 
 alter table "public"."roles" enable row level security;
 
-CREATE UNIQUE INDEX carers_pkey ON public.carers USING btree (id);
+CREATE UNIQUE INDEX if not exists carers_pkey ON public.carers USING btree (id);
 
-CREATE UNIQUE INDEX document_types_pkey ON public.document_types USING btree (id);
+CREATE UNIQUE INDEX if not exists document_types_pkey ON public.document_types USING btree (id);
 
-CREATE UNIQUE INDEX documents_pkey ON public.documents USING btree (id);
+CREATE UNIQUE INDEX if not exists  documents_pkey ON public.documents USING btree (id);
 
-CREATE UNIQUE INDEX org_membership_unique ON public.organization_memberships USING btree (user_id, organization_id);
+CREATE UNIQUE INDEX if not exists org_membership_unique ON public.organization_memberships USING btree (user_id, organization_id);
 
-CREATE UNIQUE INDEX organization_memberships_pkey ON public.organization_memberships USING btree (id);
+CREATE UNIQUE INDEX if not exists organization_memberships_pkey ON public.organization_memberships USING btree (id);
 
-CREATE UNIQUE INDEX organizations_pkey ON public.organizations USING btree (id);
+CREATE UNIQUE INDEX if not exists organizations_pkey ON public.organizations USING btree (id);
 
-CREATE UNIQUE INDEX organizations_slug_key ON public.organizations USING btree (slug);
+CREATE UNIQUE INDEX if not exists organizations_slug_key ON public.organizations USING btree (slug);
 
-CREATE UNIQUE INDEX permissions_code_key ON public.permissions USING btree (code);
+CREATE UNIQUE INDEX if not exists permissions_code_key ON public.permissions USING btree (code);
 
-CREATE UNIQUE INDEX permissions_pkey ON public.permissions USING btree (id);
+CREATE UNIQUE INDEX if not exists permissions_pkey ON public.permissions USING btree (id);
 
-CREATE UNIQUE INDEX profiles_pkey ON public.profiles USING btree (id);
+CREATE UNIQUE INDEX if not exists profiles_pkey ON public.profiles USING btree (id);
 
-CREATE UNIQUE INDEX role_permissions_pkey ON public.role_permissions USING btree (id);
+CREATE UNIQUE INDEX if not exists role_permissions_pkey ON public.role_permissions USING btree (id);
 
-CREATE UNIQUE INDEX role_permissions_unique ON public.role_permissions USING btree (role_id, permission_id);
+CREATE UNIQUE INDEX if not exists role_permissions_unique ON public.role_permissions USING btree (role_id, permission_id);
 
-CREATE UNIQUE INDEX roles_pkey ON public.roles USING btree (id);
+CREATE UNIQUE INDEX if not exists roles_pkey ON public.roles USING btree (id);
 
-CREATE UNIQUE INDEX roles_unique_org_name ON public.roles USING btree (organization_id, name);
+CREATE UNIQUE INDEX if not exists roles_unique_org_name ON public.roles USING btree (organization_id, name);
 
 alter table "public"."carers" add constraint "carers_pkey" PRIMARY KEY using index "carers_pkey";
 

@@ -11,8 +11,6 @@ export async function initProfile() {
 
 	if (!user) return;
 
-	console.log('Authenticated user:', user);
-
 	const { data, error } = await supabase
 		.from('profiles')
 		.select('*')
@@ -23,8 +21,6 @@ export async function initProfile() {
 		console.error('Error fetching profile:', error);
 		return;
 	}
-
-	console.log('Fetched profile data:', data);
 
 	if (data) {
 		setProfile(data);

@@ -47,7 +47,6 @@ export async function initOrgStore() {
 		.is('organization_memberships.deleted_at', null);
 
 	if (!data) return;
-	console.log('Fetched organizations:', data);
 	// 🔥 critical fix for TS mismatch
 	setData(data as unknown as Organization[]);
 }

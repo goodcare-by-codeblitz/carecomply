@@ -21,7 +21,7 @@ export default function PricingPage() {
 							<Link href='/auth/login'>Sign in</Link>
 						</Button>
 						<Button asChild className='h-9'>
-							<Link href='/auth/sign-up'>Get started</Link>
+							<Link href='/pricing'>Get started</Link>
 						</Button>
 					</div>
 				</div>

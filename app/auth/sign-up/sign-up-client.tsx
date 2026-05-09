@@ -2,29 +2,36 @@
 
 import ContainerBox from '@/components/shared/page-container';
 import { SignUpForm } from '@/components/sign-up-form';
+import { Button } from '@/components/ui/button';
 import { getPricingPlan, type BillingInterval } from '@/lib/billing';
-import { Check, Loader2, Shield } from 'lucide-react';
+import { Check, Shield } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 export function SignUpClient() {
 	const searchParams = useSearchParams();
-	const router = useRouter();
 	const selectedPlan = getPricingPlan(searchParams.get('plan') ?? '');
 	const selectedInterval: BillingInterval =
 		searchParams.get('interval') === 'yearly' ? 'yearly' : 'monthly';
 
-	useEffect(() => {
-		if (!selectedPlan) {
-			router.replace('/pricing');
-		}
-	}, [router, selectedPlan]);
-
 	if (!selectedPlan) {
 		return (
-			<div className='flex min-h-screen items-center justify-center'>
-				<Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+			<div className='flex min-h-screen items-center justify-center bg-background p-6'>
+				<div className='max-w-md text-center'>
+					<div className='mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-foreground'>
+						<Shield className='h-5 w-5 text-background' />
+					</div>
+					<h1 className='text-2xl font-semibold tracking-tight'>
+						Choose a plan first
+					</h1>
+					<p className='mt-3 text-sm text-muted-foreground'>
+						Select a CareComply plan so we can create your account with the
+						right subscription settings.
+					</p>
+					<Button asChild className='mt-6'>
+						<Link href='/pricing'>View pricing</Link>
+					</Button>
+				</div>
 			</div>
 		);
 	}

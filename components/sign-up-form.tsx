@@ -151,7 +151,6 @@ export function SignUpForm({
 			document.cookie = `current_org_slug=${resolvedSlug}; path=/; samesite=lax`;
 			router.push(`/${resolvedSlug}/dashboard`);
 		} catch (error: unknown) {
-			console.log(error);
 			setError(
 				getSlugTakenErrorMessage(error) ??
 					(error instanceof Error ? error.message : 'An error occurred'),

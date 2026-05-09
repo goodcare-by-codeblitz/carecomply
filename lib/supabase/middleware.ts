@@ -4,6 +4,7 @@ import { getOrgRedirectPath, getUserOrganizationsResult } from "../orgs";
 import { hasEnvVars } from "../utils";
 
 const AUTH_PATHS = ["/auth"];
+const AUTH_REDIRECT_PATHS = ["/auth/login", "/auth/sign-up"];
 const PUBLIC_PATHS = ["/", "/pricing"];
 const PUBLIC_PREFIXES = [
   "/api/billing/webhook",
@@ -107,6 +108,8 @@ export async function updateSession(request: NextRequest) {
   const userId = data?.claims?.sub;
   const pathname = request.nextUrl.pathname;
   const isAuthPath = AUTH_PATHS.some((path) => pathname.startsWith(path));
+  const shouldRedirectAuthenticatedAuthPath =
+    AUTH_REDIRECT_PATHS.includes(pathname);
   const isOnboardingPath = ONBOARDING_PATHS.includes(pathname);
   const isPublicPath = PUBLIC_PATHS.includes(pathname);
   const isPublicPrefix = PUBLIC_PREFIXES.some((path) => pathname.startsWith(path));
@@ -121,7 +124,12 @@ export async function updateSession(request: NextRequest) {
     return redirectWithCookies(request, supabaseResponse, "/auth/login");
   }
 
-  if (!userId || isAuthPath || isPublicPath || isPublicPrefix) {
+  if (
+    !userId ||
+    (isAuthPath && !shouldRedirectAuthenticatedAuthPath) ||
+    isPublicPath ||
+    isPublicPrefix
+  ) {
     return supabaseResponse;
   }
 
@@ -140,6 +148,10 @@ export async function updateSession(request: NextRequest) {
 
   const organizations = organizationsResult.organizations;
   const orgRedirectPath = getOrgRedirectPath(organizations);
+
+  if (shouldRedirectAuthenticatedAuthPath) {
+    return redirectWithCookies(request, supabaseResponse, orgRedirectPath);
+  }
 
   if (pathname === "/dashboard") {
     return redirectWithCookies(request, supabaseResponse, orgRedirectPath);
