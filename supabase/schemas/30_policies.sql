@@ -11,6 +11,7 @@ alter table public.documents enable row level security;
 alter table public.organization_billing enable row level security;
 alter table public.stripe_events enable row level security;
 alter table public.audit_logs enable row level security;
+alter table public.organization_invitations enable row level security;
 
 create policy "Authenticated users can view permissions"
 on public.permissions
@@ -86,7 +87,7 @@ using (
   )
 );
 
-create policy "Members can create carers"
+create policy "Team Members can create carers"
 on public.carers
 for insert
 to authenticated
@@ -189,3 +190,89 @@ using (public.has_org_permission(organization_id, 'audit.view'));
 
 grant select on table public.audit_logs to authenticated;
 grant select, insert, update, delete on table public.audit_logs to service_role;
+
+grant select, insert, update, delete on table public.carers to authenticated;
+grant select, insert, update, delete on table public.organization_invitations to authenticated;
+
+create policy "Org members can view invitations"
+on public.organization_invitations
+for select
+to authenticated
+using (public.is_org_member(organization_id));
+
+create policy "Authorized users can create invitations"
+on public.organization_invitations
+for insert
+to authenticated
+with check (
+  (invite_type = 'team_member' and public.has_org_permission(organization_id, 'team.invite'))
+  or (invite_type = 'carer' and public.has_org_permission(organization_id, 'carers.create'))
+);
+
+create policy "Authorized users can update invitations"
+on public.organization_invitations
+for update
+to authenticated
+using (public.has_org_permission(organization_id, 'team.invite'))
+with check (public.has_org_permission(organization_id, 'team.invite'));
+
+create policy "Authorized users can delete invitations"
+on public.organization_invitations
+for delete
+to authenticated
+using (public.has_org_permission(organization_id, 'team.manage'));
+
+create policy "Members can view carer references"
+on public.carer_references
+for select
+to authenticated
+using (
+  exists (
+    select 1 from public.carers c
+    where c.id = carer_references.carer_id
+      and public.has_org_permission(c.organization_id, 'carers.view')
+  )
+);
+
+create policy "Members can create carer references"
+on public.carer_references
+for insert
+to authenticated
+with check (
+  exists (
+    select 1 from public.carers c
+    where c.id = carer_references.carer_id
+      and public.has_org_permission(c.organization_id, 'carers.edit')
+  )
+);
+
+create policy "Members can update carer references"
+on public.carer_references
+for update
+to authenticated
+using (
+  exists (
+    select 1 from public.carers c
+    where c.id = carer_references.carer_id
+      and public.has_org_permission(c.organization_id, 'carers.edit')
+  )
+)
+with check (
+  exists (
+    select 1 from public.carers c
+    where c.id = carer_references.carer_id
+      and public.has_org_permission(c.organization_id, 'carers.edit')
+  )
+);
+
+create policy "Members can delete carer references"
+on public.carer_references
+for delete
+to authenticated
+using (
+  exists (
+    select 1 from public.carers c
+    where c.id = carer_references.carer_id
+      and public.has_org_permission(c.organization_id, 'carers.delete')
+  )
+);
