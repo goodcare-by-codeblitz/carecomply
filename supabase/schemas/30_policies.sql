@@ -93,6 +93,12 @@ for insert
 to authenticated
 with check (public.has_org_permission(organization_id, 'carers.create'));
 
+create policy "Team Members can update Organization info"
+on public.organizations
+for update
+to authenticated
+with check (public.has_org_permission(id, 'organizations.edit'));
+
 create policy "Members can delete carers"
 on public.carers
 for delete

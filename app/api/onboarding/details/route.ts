@@ -30,7 +30,7 @@ export async function GET(request: Request) {
 					.order('uploaded_at', { ascending: false }),
 				admin
 					.from('carer_references')
-					.select('id, full_name, email, phone, relationship, notes')
+					.select('id, full_name, organization, email, phone, relationship, notes, reference_type')
 					.eq('carer_id', context.carer.id)
 					.order('created_at', { ascending: true }),
 			]);

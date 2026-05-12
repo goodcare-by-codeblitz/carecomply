@@ -33,6 +33,8 @@ export type Organization = {
 	slug: string;
 	logo_url?: string | null;
 	logo_path?: string | null;
+	required_work_references_count?: number | null;
+	required_character_references_count?: number | null;
 	organization_memberships: Membership[];
 };
 
@@ -45,6 +47,8 @@ export type NormalizedState = {
 			slug: string;
 			logo_url?: string | null;
 			logo_path?: string | null;
+			required_work_references_count?: number | null;
+			required_character_references_count?: number | null;
 		}
 	>;
 	memberships: Record<

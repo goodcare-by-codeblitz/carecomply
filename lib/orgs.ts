@@ -4,6 +4,8 @@ export type UserOrganization = {
 	slug: string;
 	logo_url?: string | null;
 	logo_path?: string | null;
+	required_work_references_count?: number | null;
+	required_character_references_count?: number | null;
 };
 
 export type UserOrganizationsResult =
@@ -194,6 +196,8 @@ function normalizeOrganizationAccessRow(data: OrganizationAccessRow) {
 		slug: data.slug,
 		logo_url: data.logo_url ?? null,
 		logo_path: data.logo_path ?? null,
+		required_work_references_count: data.required_work_references_count ?? null,
+		required_character_references_count: data.required_character_references_count ?? null,
 	};
 }
 

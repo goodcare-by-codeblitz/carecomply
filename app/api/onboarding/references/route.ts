@@ -9,6 +9,7 @@ import { z } from 'zod';
 
 const referenceSchema = z.object({
 	fullName: z.string().trim().min(2),
+	organization: z.string().trim().optional(),
 	email: z.string().trim().email(),
 	phone: z
 		.string()
@@ -17,6 +18,7 @@ const referenceSchema = z.object({
 		.refine((value) => /^[\d\s+()-]+$/.test(value), 'Invalid phone number'),
 	relationship: z.string().trim().min(2),
 	notes: z.string().trim().optional(),
+	referenceType: z.enum(['work', 'character']),
 });
 
 const requestSchema = z.object({
@@ -28,7 +30,7 @@ const requestSchema = z.object({
 		.refine((value) => !value || /^[\d\s+()-]+$/.test(value), {
 			message: 'Invalid phone number',
 		}),
-	references: z.array(referenceSchema).min(1).max(5),
+	references: z.array(referenceSchema).min(1).max(10),
 });
 
 export async function POST(request: Request) {
@@ -49,10 +51,13 @@ export async function POST(request: Request) {
 		const context = await getCarerOnboardingContext(admin, payload.token);
 		const now = new Date().toISOString();
 
+		// Only delete the reference types being submitted, preserving the other type
+		const typesBeingUpdated = [...new Set(payload.references.map((r) => r.referenceType))];
 		const { error: deleteError } = await admin
 			.from('carer_references')
 			.delete()
-			.eq('carer_id', context.carer.id);
+			.eq('carer_id', context.carer.id)
+			.in('reference_type', typesBeingUpdated);
 
 		if (deleteError) {
 			throw deleteError;
@@ -64,15 +69,17 @@ export async function POST(request: Request) {
 				payload.references.map((reference) => ({
 					carer_id: context.carer.id,
 					full_name: reference.fullName,
+					organization: reference.organization || null,
 					email: reference.email.toLowerCase(),
 					phone: reference.phone,
 					relationship: reference.relationship,
 					notes: reference.notes || null,
+					reference_type: reference.referenceType,
 					created_at: now,
 					updated_at: now,
 				})),
 			)
-			.select('id, full_name, email, phone, relationship, notes');
+			.select('id, full_name, organization, email, phone, relationship, notes, reference_type');
 
 		if (error) {
 			throw error;
@@ -101,9 +108,8 @@ export async function POST(request: Request) {
 					reference_count: data?.length ?? 0,
 				},
 				changed_fields: ['phone', 'references'],
-				reference_relationships: payload.references.map(
-					(reference) => reference.relationship,
-				),
+				reference_types_updated: typesBeingUpdated,
+				reference_relationships: payload.references.map((r) => r.relationship),
 				outcome: 'carer_onboarding_references_saved',
 			},
 		});

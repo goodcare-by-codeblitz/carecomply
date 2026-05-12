@@ -26,9 +26,7 @@ import {
 	Clock,
 	FileText,
 	Loader2,
-	Plus,
 	Shield,
-	Trash2,
 	Upload,
 	X,
 } from 'lucide-react';
@@ -47,6 +45,8 @@ type Carer = {
 type Organization = {
 	name: string;
 	slug: string;
+	required_work_references_count?: number | null;
+	required_character_references_count?: number | null;
 } | null;
 
 type DocumentType = {
@@ -71,10 +71,23 @@ type UploadedDoc = {
 type ReferenceRow = {
 	id?: string;
 	fullName: string;
+	organization: string;
 	email: string;
 	phone: string;
 	relationship: string;
 	notes: string;
+	referenceType: 'work' | 'character';
+};
+
+type ApiReference = {
+	id: string;
+	full_name: string;
+	organization: string | null;
+	email: string;
+	phone: string;
+	relationship: string;
+	notes: string | null;
+	reference_type: string;
 };
 
 type OnboardingPayload = {
@@ -82,23 +95,31 @@ type OnboardingPayload = {
 	carer: Carer;
 	documentTypes: DocumentType[];
 	documents: UploadedDoc[];
-	references: Array<{
-		id: string;
-		full_name: string;
-		email: string;
-		phone: string;
-		relationship: string;
-		notes: string | null;
-	}>;
+	references: ApiReference[];
 };
 
-const emptyReference = (): ReferenceRow => ({
+const emptyReference = (referenceType: 'work' | 'character'): ReferenceRow => ({
 	fullName: '',
+	organization: '',
 	email: '',
 	phone: '',
 	relationship: '',
 	notes: '',
+	referenceType,
 });
+
+function mapApiRef(ref: ApiReference, referenceType: 'work' | 'character'): ReferenceRow {
+	return {
+		id: ref.id,
+		fullName: ref.full_name,
+		organization: ref.organization ?? '',
+		email: ref.email,
+		phone: ref.phone,
+		relationship: ref.relationship,
+		notes: ref.notes ?? '',
+		referenceType,
+	};
+}
 
 function isDocumentUnexpired(document: Pick<UploadedDoc, 'expiry_date'>) {
 	if (!document.expiry_date) return true;
@@ -118,9 +139,8 @@ export function OnboardingClient() {
 	const [organization, setOrganization] = useState<Organization>(null);
 	const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
 	const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
-	const [references, setReferences] = useState<ReferenceRow[]>([
-		emptyReference(),
-	]);
+	const [workReferences, setWorkReferences] = useState<ReferenceRow[]>([]);
+	const [characterReferences, setCharacterReferences] = useState<ReferenceRow[]>([]);
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
@@ -129,10 +149,9 @@ export function OnboardingClient() {
 	const [file, setFile] = useState<File | null>(null);
 	const [isDragging, setIsDragging] = useState(false);
 	const [isUploading, setIsUploading] = useState(false);
-	const [isSavingReferences, setIsSavingReferences] = useState(false);
-	const [validationErrors, setValidationErrors] = useState<
-		Record<string, string>
-	>({});
+	const [isSavingWorkRefs, setIsSavingWorkRefs] = useState(false);
+	const [isSavingCharRefs, setIsSavingCharRefs] = useState(false);
+	const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
 	const loadOnboarding = useCallback(async () => {
@@ -143,9 +162,7 @@ export function OnboardingClient() {
 			const response = await fetch(
 				`/api/onboarding/details?token=${encodeURIComponent(token)}`,
 			);
-			const payload = (await response.json()) as
-				| OnboardingPayload
-				| { error?: string };
+			const payload = (await response.json()) as OnboardingPayload | { error?: string };
 
 			if (!response.ok) {
 				const errorPayload = payload as { error?: string };
@@ -154,22 +171,26 @@ export function OnboardingClient() {
 			}
 
 			const data = payload as OnboardingPayload;
+			const reqWork = data.organization?.required_work_references_count ?? 0;
+			const reqChar = data.organization?.required_character_references_count ?? 0;
+
+			const savedWork = data.references.filter((r) => r.reference_type === 'work');
+			const savedChar = data.references.filter((r) => r.reference_type === 'character');
+
 			setCarer(data.carer);
 			setCarerPhone(data.carer.phone ?? '');
 			setOrganization(data.organization);
 			setDocumentTypes(data.documentTypes);
 			setUploadedDocs(data.documents);
-			setReferences(
-				data.references.length > 0
-					? data.references.map((reference) => ({
-							id: reference.id,
-							fullName: reference.full_name,
-							email: reference.email,
-							phone: reference.phone,
-							relationship: reference.relationship,
-							notes: reference.notes ?? '',
-						}))
-					: [emptyReference()],
+			setWorkReferences(
+				Array.from({ length: reqWork }, (_, i) =>
+					savedWork[i] ? mapApiRef(savedWork[i], 'work') : emptyReference('work'),
+				),
+			);
+			setCharacterReferences(
+				Array.from({ length: reqChar }, (_, i) =>
+					savedChar[i] ? mapApiRef(savedChar[i], 'character') : emptyReference('character'),
+				),
 			);
 		} catch (err) {
 			console.error(err);
@@ -183,6 +204,7 @@ export function OnboardingClient() {
 		loadOnboarding();
 	}, [loadOnboarding]);
 
+	// Document helpers
 	const documentsByType = uploadedDocs.reduce<Record<string, UploadedDoc[]>>(
 		(groups, doc) => {
 			if (doc.status === 'obsolete') return groups;
@@ -192,8 +214,7 @@ export function OnboardingClient() {
 		},
 		{},
 	);
-	const getDocTypeById = (id: string) =>
-		documentTypes.find((type) => type.id === id);
+	const getDocTypeById = (id: string) => documentTypes.find((type) => type.id === id);
 	const getDocsForType = (id: string) => documentsByType[id] ?? [];
 	const getEffectiveDocStatus = (id: string) => {
 		const docs = getDocsForType(id);
@@ -201,30 +222,40 @@ export function OnboardingClient() {
 			(doc) => doc.status === 'approved' && isDocumentUnexpired(doc),
 		);
 		if (approvedDoc) return approvedDoc;
-
 		return docs.find((doc) => doc.status !== 'rejected') ?? docs[0] ?? null;
 	};
 	const isDocTypeCompliant = (id: string) =>
 		getDocsForType(id).some(
 			(doc) => doc.status === 'approved' && isDocumentUnexpired(doc),
 		);
+	const isDocTypeSubmitted = (id: string) =>
+		getDocsForType(id).some((doc) => doc.status === 'pending');
+
 	const rejectedDocs = uploadedDocs.filter((doc) => doc.status === 'rejected');
 	const requiredTypes = documentTypes.filter((type) => type.is_required);
 	const uploadedRequiredCount = requiredTypes.filter((type) =>
 		isDocTypeCompliant(type.id),
 	).length;
-	const progress =
-		requiredTypes.length > 0
-			? Math.round((uploadedRequiredCount / requiredTypes.length) * 100)
-			: 100;
 
-	const selectedDocumentType = selectedType
-		? getDocTypeById(selectedType)
-		: null;
+	// Reference compliance
+	const reqWork = organization?.required_work_references_count ?? 0;
+	const reqChar = organization?.required_character_references_count ?? 0;
+	const workSaved = workReferences.filter((r) => r.id).length;
+	const charSaved = characterReferences.filter((r) => r.id).length;
+	const workComplete = reqWork > 0 && workSaved >= reqWork;
+	const charComplete = reqChar > 0 && charSaved >= reqChar;
+
+	const totalRequired =
+		requiredTypes.length + (reqWork > 0 ? 1 : 0) + (reqChar > 0 ? 1 : 0);
+	const completedCount =
+		uploadedRequiredCount + (workComplete ? 1 : 0) + (charComplete ? 1 : 0);
+	const progress = totalRequired > 0 ? Math.round((completedCount / totalRequired) * 100) : 100;
+	const hasAllRequiredDocuments = progress === 100;
+
+	const selectedDocumentType = selectedType ? getDocTypeById(selectedType) : null;
 	const selectedTypeHasExistingDoc = selectedType
 		? getDocsForType(selectedType).length > 0
 		: false;
-	const hasAllRequiredDocuments = progress === 100;
 
 	const documentOptions = documentTypes.map((type) => {
 		const latest = getEffectiveDocStatus(type.id);
@@ -278,21 +309,19 @@ export function OnboardingClient() {
 				method: 'POST',
 				body: formData,
 			});
-			const payload = (await response.json()) as {
+			const uploadPayload = (await response.json()) as {
 				document?: UploadedDoc;
 				progress?: number;
 				error?: string;
 			};
 
-			if (!response.ok || !payload.document) {
-				throw new Error(payload.error || 'Upload failed');
+			if (!response.ok || !uploadPayload.document) {
+				throw new Error(uploadPayload.error || 'Upload failed');
 			}
 
-			setUploadedDocs((prev) => [payload.document!, ...prev]);
+			setUploadedDocs((prev) => [uploadPayload.document!, ...prev]);
 			setCarer((prev) =>
-				prev
-					? { ...prev, onboarding_progress: payload.progress ?? progress }
-					: prev,
+				prev ? { ...prev, onboarding_progress: uploadPayload.progress ?? progress } : prev,
 			);
 			toast.success('Document uploaded successfully');
 			setFile(null);
@@ -303,28 +332,30 @@ export function OnboardingClient() {
 			}
 		} catch (err) {
 			console.error(err);
-			toast.error(
-				err instanceof Error ? err.message : 'Failed to upload document',
-			);
+			toast.error(err instanceof Error ? err.message : 'Failed to upload document');
 		} finally {
 			setIsUploading(false);
 		}
 	};
 
-	const updateReference = (
+	const updateRef = (
+		type: 'work' | 'character',
 		index: number,
 		field: keyof ReferenceRow,
 		value: string,
 	) => {
-		setReferences((current) =>
-			current.map((reference, refIndex) =>
-				refIndex === index ? { ...reference, [field]: value } : reference,
-			),
+		const setter = type === 'work' ? setWorkReferences : setCharacterReferences;
+		setter((current) =>
+			current.map((ref, i) => (i === index ? { ...ref, [field]: value } : ref)),
 		);
 	};
 
-	const saveReferences = async () => {
-		setIsSavingReferences(true);
+	const saveReferences = async (
+		type: 'work' | 'character',
+		refs: ReferenceRow[],
+	) => {
+		const setIsSaving = type === 'work' ? setIsSavingWorkRefs : setIsSavingCharRefs;
+		setIsSaving(true);
 
 		try {
 			const response = await fetch('/api/onboarding/references', {
@@ -333,50 +364,45 @@ export function OnboardingClient() {
 				body: JSON.stringify({
 					token,
 					carerPhone,
-					references: references.map(
-						({ fullName, email, phone, relationship, notes }) => ({
-							fullName,
-							email,
-							phone,
-							relationship,
-							notes,
-						}),
-					),
+					references: refs.map(({ fullName, organization: org, email, phone, relationship, notes, referenceType }) => ({
+						fullName,
+						organization: org,
+						email,
+						phone,
+						relationship,
+						notes,
+						referenceType,
+					})),
 				}),
 			});
-			const payload = (await response.json()) as {
-				references?: OnboardingPayload['references'];
+			const refPayload = (await response.json()) as {
+				references?: ApiReference[];
 				carerPhone?: string | null;
 				error?: string;
 			};
 
-			if (!response.ok || !payload.references) {
-				throw new Error(payload.error || 'References could not be saved');
+			if (!response.ok || !refPayload.references) {
+				throw new Error(refPayload.error || 'References could not be saved');
 			}
 
-			setReferences(
-				payload.references.map((reference) => ({
-					id: reference.id,
-					fullName: reference.full_name,
-					email: reference.email,
-					phone: reference.phone,
-					relationship: reference.relationship,
-					notes: reference.notes ?? '',
-				})),
+			const saved = refPayload.references.filter((r) => r.reference_type === type);
+			const setter = type === 'work' ? setWorkReferences : setCharacterReferences;
+			const req = type === 'work' ? reqWork : reqChar;
+
+			setter(
+				Array.from({ length: req }, (_, i) =>
+					saved[i] ? mapApiRef(saved[i], type) : emptyReference(type),
+				),
 			);
-			setCarer((prev) =>
-				prev ? { ...prev, phone: payload.carerPhone ?? null } : prev,
+			setCarer((prev) => (prev ? { ...prev, phone: refPayload.carerPhone ?? null } : prev));
+			toast.success(
+				type === 'work' ? 'Work references saved' : 'Character references saved',
 			);
-			toast.success('Reference details saved');
 		} catch (err) {
 			console.error(err);
-			toast.error(
-				err instanceof Error
-					? err.message
-					: 'Reference details could not be saved',
-			);
+			toast.error(err instanceof Error ? err.message : 'References could not be saved');
 		} finally {
-			setIsSavingReferences(false);
+			setIsSaving(false);
 		}
 	};
 
@@ -463,7 +489,7 @@ export function OnboardingClient() {
 							<CheckCircle2 className='w-5 h-5 text-green-600 shrink-0 mt-0.5' />
 							<div>
 								<p className='font-medium text-green-800'>
-									All required documents submitted
+									All requirements completed
 								</p>
 								<p className='text-sm text-green-700'>
 									You can still upload replacements or update details until this
@@ -512,8 +538,8 @@ export function OnboardingClient() {
 						<div className='flex items-center justify-between mb-3'>
 							<span className='text-sm font-medium'>Your Progress</span>
 							<span className='text-sm text-muted-foreground'>
-								{uploadedRequiredCount} of {requiredTypes.length} required
-								documents
+								{completedCount} of {totalRequired} required{' '}
+								{totalRequired > requiredTypes.length ? 'items' : 'documents'}
 							</span>
 						</div>
 						<div className='h-2 bg-muted rounded-full overflow-hidden'>
@@ -528,7 +554,7 @@ export function OnboardingClient() {
 				<div className='grid lg:grid-cols-5 gap-8'>
 					<div className='lg:col-span-2 space-y-3'>
 						<h2 className='text-sm font-medium text-muted-foreground uppercase tracking-wider mb-4'>
-							Required Documents
+							Required Items
 						</h2>
 						{documentTypes.map((docType) => {
 							const isUploaded = isDocTypeCompliant(docType.id);
@@ -543,12 +569,16 @@ export function OnboardingClient() {
 											? 'bg-red-50/50 border-red-200'
 											: isUploaded
 												? 'bg-green-50/50 border-green-200'
-												: 'bg-card hover:bg-muted/30',
+												: isDocTypeSubmitted(docType.id)
+													? 'bg-amber-50/50 border-amber-200'
+													: 'bg-card hover:bg-muted/30',
 									)}>
 									{isRejected ? (
 										<AlertCircle className='w-5 h-5 text-red-600 shrink-0' />
 									) : isUploaded ? (
 										<CheckCircle2 className='w-5 h-5 text-green-600 shrink-0' />
+									) : isDocTypeSubmitted(docType.id) ? (
+										<Clock className='w-5 h-5 text-amber-500 shrink-0' />
 									) : (
 										<div className='w-5 h-5 rounded-full border-2 border-muted-foreground/30 shrink-0' />
 									)}
@@ -562,10 +592,12 @@ export function OnboardingClient() {
 										<p className='text-xs text-muted-foreground flex items-center gap-1 mt-0.5'>
 											{isRejected ? (
 												'Needs re-upload'
+											) : docStatus?.status === 'pending' ? (
+												`Under review – submitted ${new Date(docStatus.uploaded_at).toLocaleDateString()}`
+											) : docStatus?.status === 'approved' ? (
+												`Approved – ${new Date(docStatus.uploaded_at).toLocaleDateString()}`
 											) : docStatus ? (
-												`${docStatus.status} - ${new Date(
-													docStatus.uploaded_at,
-												).toLocaleDateString()}`
+												`${docStatus.status} – ${new Date(docStatus.uploaded_at).toLocaleDateString()}`
 											) : docType.expiry_months ? (
 												<>
 													<Clock className='w-3 h-3' />
@@ -579,6 +611,72 @@ export function OnboardingClient() {
 								</div>
 							);
 						})}
+
+						{reqWork > 0 && (
+							<div
+								className={cn(
+									'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+									workComplete
+										? 'bg-green-50/50 border-green-200'
+										: workSaved > 0
+											? 'bg-amber-50/50 border-amber-200'
+											: 'bg-card hover:bg-muted/30',
+								)}>
+								{workComplete ? (
+									<CheckCircle2 className='w-5 h-5 text-green-600 shrink-0' />
+								) : workSaved > 0 ? (
+									<Clock className='w-5 h-5 text-amber-500 shrink-0' />
+								) : (
+									<div className='w-5 h-5 rounded-full border-2 border-muted-foreground/30 shrink-0' />
+								)}
+								<div className='min-w-0 flex-1'>
+									<p className='text-sm font-medium'>
+										Work References
+										<span className='text-destructive ml-1'>*</span>
+									</p>
+									<p className='text-xs text-muted-foreground mt-0.5'>
+										{workComplete
+											? `${workSaved} of ${reqWork} saved`
+											: workSaved > 0
+												? `${workSaved} of ${reqWork} saved – add more below`
+												: `${reqWork} required – complete the form below`}
+									</p>
+								</div>
+							</div>
+						)}
+
+						{reqChar > 0 && (
+							<div
+								className={cn(
+									'flex items-center gap-3 p-3 rounded-lg border transition-colors',
+									charComplete
+										? 'bg-green-50/50 border-green-200'
+										: charSaved > 0
+											? 'bg-amber-50/50 border-amber-200'
+											: 'bg-card hover:bg-muted/30',
+								)}>
+								{charComplete ? (
+									<CheckCircle2 className='w-5 h-5 text-green-600 shrink-0' />
+								) : charSaved > 0 ? (
+									<Clock className='w-5 h-5 text-amber-500 shrink-0' />
+								) : (
+									<div className='w-5 h-5 rounded-full border-2 border-muted-foreground/30 shrink-0' />
+								)}
+								<div className='min-w-0 flex-1'>
+									<p className='text-sm font-medium'>
+										Character References
+										<span className='text-destructive ml-1'>*</span>
+									</p>
+									<p className='text-xs text-muted-foreground mt-0.5'>
+										{charComplete
+											? `${charSaved} of ${reqChar} saved`
+											: charSaved > 0
+												? `${charSaved} of ${reqChar} saved – add more below`
+												: `${reqChar} required – complete the form below`}
+									</p>
+								</div>
+							</div>
+						)}
 					</div>
 
 					<Card className='lg:col-span-3'>
@@ -663,16 +761,13 @@ export function OnboardingClient() {
 										isDragging
 											? 'border-primary bg-primary/5'
 											: 'border-border hover:border-muted-foreground/50',
-										file &&
-											'border-solid border-muted-foreground/30 bg-muted/30',
+										file && 'border-solid border-muted-foreground/30 bg-muted/30',
 									)}>
 									<input
 										ref={fileInputRef}
 										type='file'
 										className='hidden'
-										onChange={(event) =>
-											setFile(event.target.files?.[0] ?? null)
-										}
+										onChange={(event) => setFile(event.target.files?.[0] ?? null)}
 										accept='.pdf,.jpg,.jpeg,.png,.doc,.docx'
 									/>
 
@@ -727,9 +822,7 @@ export function OnboardingClient() {
 								) : (
 									<>
 										<Upload className='w-4 h-4 mr-2' />
-										{selectedTypeHasExistingDoc
-											? 'Upload Replacement'
-											: 'Upload Document'}
+										{selectedTypeHasExistingDoc ? 'Upload Replacement' : 'Upload Document'}
 									</>
 								)}
 							</Button>
@@ -737,111 +830,118 @@ export function OnboardingClient() {
 					</Card>
 				</div>
 
-				<Card>
-					<CardHeader>
-						<CardTitle className='text-lg'>Reference Details</CardTitle>
-						<CardDescription>
-							Add referee contact details for your agency to review.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className='space-y-6'>
-						{references.map((reference, index) => (
-							<div
-								key={reference.id ?? index}
-								className='space-y-4 rounded-lg border p-4'>
-								<div className='flex items-center justify-between gap-3'>
-									<p className='text-sm font-medium'>Reference {index + 1}</p>
-									<Button
-										type='button'
-										variant='ghost'
-										size='icon'
-										disabled={references.length === 1}
-										onClick={() =>
-											setReferences((current) =>
-												current.filter((_, refIndex) => refIndex !== index),
-											)
-										}>
-										<Trash2 className='w-4 h-4' />
-									</Button>
-								</div>
-								<div className='grid gap-4 sm:grid-cols-2'>
-									<div className='space-y-2'>
-										<Label>Name *</Label>
-										<Input
-											value={reference.fullName}
-											onChange={(event) =>
-												updateReference(index, 'fullName', event.target.value)
-											}
-										/>
-									</div>
-									<div className='space-y-2'>
-										<Label>Relationship *</Label>
-										<Input
-											value={reference.relationship}
-											onChange={(event) =>
-												updateReference(
-													index,
-													'relationship',
-													event.target.value,
-												)
-											}
-										/>
-									</div>
-									<div className='space-y-2'>
-										<Label>Email *</Label>
-										<Input
-											type='email'
-											value={reference.email}
-											onChange={(event) =>
-												updateReference(index, 'email', event.target.value)
-											}
-										/>
-									</div>
-									<div className='space-y-2'>
-										<Label>Phone *</Label>
-										<Input
-											type='tel'
-											value={reference.phone}
-											onChange={(event) =>
-												updateReference(index, 'phone', event.target.value)
-											}
-										/>
-									</div>
-								</div>
-								<div className='space-y-2'>
-									<Label>Notes</Label>
-									<Textarea
-										value={reference.notes}
-										onChange={(event) =>
-											updateReference(index, 'notes', event.target.value)
-										}
-										rows={2}
-									/>
-								</div>
-							</div>
-						))}
+				{reqWork > 0 && (
+					<ReferenceCard
+						title='Work References'
+						description={`Provide ${reqWork} work reference${reqWork > 1 ? 's' : ''} from previous employers or colleagues.`}
+						references={workReferences}
+						isSaving={isSavingWorkRefs}
+						onUpdate={(index, field, value) => updateRef('work', index, field, value)}
+						onSave={() => saveReferences('work', workReferences)}
+					/>
+				)}
 
-						<div className='flex flex-col gap-3 sm:flex-row'>
-							<Button
-								type='button'
-								variant='outline'
-								onClick={() =>
-									setReferences((current) => [...current, emptyReference()])
-								}>
-								<Plus className='w-4 h-4 mr-2' />
-								Add Reference
-							</Button>
-							<Button
-								type='button'
-								className='sm:ml-auto'
-								disabled={isSavingReferences}
-								onClick={saveReferences}>
-								{isSavingReferences ? 'Saving...' : 'Save References'}
-							</Button>
-						</div>
-					</CardContent>
-				</Card>
+				{reqChar > 0 && (
+					<ReferenceCard
+						title='Character References'
+						description={`Provide ${reqChar} character reference${reqChar > 1 ? 's' : ''} from someone who can vouch for your character.`}
+						references={characterReferences}
+						isSaving={isSavingCharRefs}
+						onUpdate={(index, field, value) => updateRef('character', index, field, value)}
+						onSave={() => saveReferences('character', characterReferences)}
+					/>
+				)}
 			</main>
 		</div>
+	);
+}
+
+type ReferenceCardProps = {
+	title: string;
+	description: string;
+	references: ReferenceRow[];
+	isSaving: boolean;
+	onUpdate: (index: number, field: keyof ReferenceRow, value: string) => void;
+	onSave: () => void;
+};
+
+function ReferenceCard({
+	title,
+	description,
+	references,
+	isSaving,
+	onUpdate,
+	onSave,
+}: ReferenceCardProps) {
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle className='text-lg'>{title}</CardTitle>
+				<CardDescription>{description}</CardDescription>
+			</CardHeader>
+			<CardContent className='space-y-6'>
+				{references.map((reference, index) => (
+					<div
+						key={reference.id ?? index}
+						className='space-y-4 rounded-lg border p-4'>
+						<p className='text-sm font-medium'>Reference {index + 1}</p>
+						<div className='grid gap-4 sm:grid-cols-2'>
+							<div className='space-y-2'>
+								<Label>Name *</Label>
+								<Input
+									value={reference.fullName}
+									onChange={(e) => onUpdate(index, 'fullName', e.target.value)}
+								/>
+							</div>
+							<div className='space-y-2'>
+								<Label>Organisation</Label>
+								<Input
+									value={reference.organization}
+									placeholder='e.g. ABC Care Home'
+									onChange={(e) => onUpdate(index, 'organization', e.target.value)}
+								/>
+							</div>
+							<div className='space-y-2'>
+								<Label>Relationship *</Label>
+								<Input
+									value={reference.relationship}
+									onChange={(e) => onUpdate(index, 'relationship', e.target.value)}
+								/>
+							</div>
+							<div className='space-y-2'>
+								<Label>Email *</Label>
+								<Input
+									type='email'
+									value={reference.email}
+									onChange={(e) => onUpdate(index, 'email', e.target.value)}
+								/>
+							</div>
+							<div className='space-y-2'>
+								<Label>Phone *</Label>
+								<Input
+									type='tel'
+									value={reference.phone}
+									onChange={(e) => onUpdate(index, 'phone', e.target.value)}
+								/>
+							</div>
+						</div>
+						<div className='space-y-2'>
+							<Label>Notes</Label>
+							<Textarea
+								value={reference.notes}
+								onChange={(e) => onUpdate(index, 'notes', e.target.value)}
+								rows={2}
+							/>
+						</div>
+					</div>
+				))}
+
+				<div className='flex justify-end'>
+					<Button type='button' disabled={isSaving} onClick={onSave}>
+						{isSaving ? 'Saving...' : `Save ${title}`}
+					</Button>
+				</div>
+			</CardContent>
+		</Card>
 	);
 }

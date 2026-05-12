@@ -34,10 +34,14 @@ type InvitationRow = {
 		| {
 				name: string;
 				slug: string;
+				required_work_references_count: number | null;
+				required_character_references_count: number | null;
 		  }
 		| {
 				name: string;
 				slug: string;
+				required_work_references_count: number | null;
+				required_character_references_count: number | null;
 		  }[]
 		| null;
 };
@@ -61,6 +65,8 @@ export type CarerOnboardingContext = {
 	organization: {
 		name: string;
 		slug: string;
+		required_work_references_count: number | null;
+		required_character_references_count: number | null;
 	} | null;
 };
 
@@ -92,7 +98,7 @@ export async function getCarerOnboardingContext(
 	const { data, error } = await admin
 		.from('organization_invitations')
 		.select(
-			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, onboarding_progress), organizations(name, slug)',
+			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, onboarding_progress), organizations(name, slug, required_work_references_count, required_character_references_count)',
 		)
 		.eq('token', token)
 		.maybeSingle();
@@ -155,7 +161,7 @@ export async function updateCarerOnboardingProgress(
 	organizationId: string,
 	options: { preserveEmploymentStatus?: boolean } = {},
 ) {
-	const [{ data: carer }, { data: requiredTypes }, { data: documents }] =
+	const [{ data: carer }, { data: requiredTypes }, { data: documents }, { data: orgData }, { data: refRows }] =
 		await Promise.all([
 			admin.from('carers').select('status').eq('id', carerId).maybeSingle(),
 			admin
@@ -166,6 +172,15 @@ export async function updateCarerOnboardingProgress(
 			admin
 				.from('documents')
 				.select('document_type_id, status, expiry_date')
+				.eq('carer_id', carerId),
+			admin
+				.from('organizations')
+				.select('required_work_references_count, required_character_references_count')
+				.eq('id', organizationId)
+				.maybeSingle(),
+			admin
+				.from('carer_references')
+				.select('reference_type')
 				.eq('carer_id', carerId),
 		]);
 
@@ -194,14 +209,26 @@ export async function updateCarerOnboardingProgress(
 		}
 	});
 
-	const progress =
-		requiredIds.size === 0
-			? 0
-			: Math.round((approvedRequiredIds.size / requiredIds.size) * 100);
+	const reqWork = orgData?.required_work_references_count ?? 0;
+	const reqChar = orgData?.required_character_references_count ?? 0;
+	const workCount = (refRows ?? []).filter((r) => r.reference_type === 'work').length;
+	const charCount = (refRows ?? []).filter((r) => r.reference_type === 'character').length;
+	const workSlot = reqWork > 0 ? 1 : 0;
+	const charSlot = reqChar > 0 ? 1 : 0;
+	const workDone = reqWork > 0 && workCount >= reqWork ? 1 : 0;
+	const charDone = reqChar > 0 && charCount >= reqChar ? 1 : 0;
+
+	const totalSlots = requiredIds.size + workSlot + charSlot;
+	const filledSlots = approvedRequiredIds.size + workDone + charDone;
+
+	const progress = totalSlots === 0 ? 0 : Math.round((filledSlots / totalSlots) * 100);
+
+	const allDocsDone = requiredIds.size === 0 || approvedRequiredIds.size === requiredIds.size;
+	const allRefsDone = workDone === workSlot && charDone === charSlot;
 	const status =
-		requiredIds.size === 0 || !hasSubmittedRequiredDocument
+		totalSlots === 0 || (!hasSubmittedRequiredDocument && requiredIds.size > 0)
 			? 'pending'
-			: approvedRequiredIds.size === requiredIds.size
+			: allDocsDone && allRefsDone
 				? 'active'
 				: 'incomplete';
 	const shouldPreserveEmploymentStatus =

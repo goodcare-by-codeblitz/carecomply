@@ -15,6 +15,8 @@ export function normalize(data: Organization[]): NormalizedState {
 			slug: org.slug,
 			logo_url: org.logo_url ?? null,
 			logo_path: org.logo_path ?? null,
+			required_work_references_count: org.required_work_references_count ?? null,
+			required_character_references_count: org.required_character_references_count ?? null,
 		};
 
 		for (const m of org.organization_memberships ?? []) {

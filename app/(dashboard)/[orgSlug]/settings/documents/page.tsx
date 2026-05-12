@@ -12,6 +12,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { getCurrentOrgBySlug } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/client';
@@ -59,6 +60,7 @@ export default function DocumentSettingsPage() {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
 	const router = useRouter();
 	const storeOrg = useOrgStore((state) => state.getCurrentOrgFromSlug(orgSlug));
+	const updateOrganization = useOrgStore((state) => state.updateOrganization);
 	const [organization, setOrganization] = useState(storeOrg ?? null);
 	const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
 	const [form, setForm] = useState<FormState>(emptyForm);
@@ -66,9 +68,16 @@ export default function DocumentSettingsPage() {
 	const [isSaving, setIsSaving] = useState(false);
 	const [deletingId, setDeletingId] = useState<string | null>(null);
 
+	const [requireWork, setRequireWork] = useState(false);
+	const [workCount, setWorkCount] = useState('2');
+	const [requireChar, setRequireChar] = useState(false);
+	const [charCount, setCharCount] = useState('2');
+	const [isSavingRefs, setIsSavingRefs] = useState(false);
+
 	useEffect(() => {
 		if (storeOrg) {
 			setOrganization(storeOrg);
+			seedRefSettings(storeOrg.required_work_references_count, storeOrg.required_character_references_count);
 			return;
 		}
 
@@ -83,11 +92,25 @@ export default function DocumentSettingsPage() {
 				return;
 			}
 
-			setOrganization(await getCurrentOrgBySlug(supabase, user.id, orgSlug));
+			const org = await getCurrentOrgBySlug(supabase, user.id, orgSlug);
+			setOrganization(org);
+			if (org) {
+				seedRefSettings(org.required_work_references_count, org.required_character_references_count);
+			}
 		};
 
 		fetchOrganization();
 	}, [orgSlug, router, storeOrg]);
+
+	function seedRefSettings(
+		workCount_: number | null | undefined,
+		charCount_: number | null | undefined,
+	) {
+		setRequireWork((workCount_ ?? 0) > 0);
+		if (workCount_) setWorkCount(String(workCount_));
+		setRequireChar((charCount_ ?? 0) > 0);
+		if (charCount_) setCharCount(String(charCount_));
+	}
 
 	const loadDocumentTypes = useCallback(async () => {
 		if (!organization) return;
@@ -205,6 +228,36 @@ export default function DocumentSettingsPage() {
 		} finally {
 			setIsSaving(false);
 		}
+	};
+
+	const saveReferenceRequirements = async () => {
+		if (!organization) return;
+
+		const workVal = requireWork ? Math.max(1, Math.min(5, parseInt(workCount) || 2)) : null;
+		const charVal = requireChar ? Math.max(1, Math.min(5, parseInt(charCount) || 2)) : null;
+
+		setIsSavingRefs(true);
+		const supabase = createClient();
+		const { error } = await supabase
+			.from('organizations')
+			.update({
+				required_work_references_count: workVal,
+				required_character_references_count: charVal,
+			})
+			.eq('id', organization.id);
+
+		setIsSavingRefs(false);
+
+		if (error) {
+			toast.error('Reference requirements could not be saved');
+			return;
+		}
+
+		toast.success('Reference requirements updated');
+		updateOrganization(organization.id, {
+			required_work_references_count: workVal,
+			required_character_references_count: charVal,
+		});
 	};
 
 	const deleteDocumentType = async (documentType: DocumentType) => {
@@ -400,6 +453,74 @@ export default function DocumentSettingsPage() {
 							No document requirements have been configured yet.
 						</div>
 					)}
+				</CardContent>
+			</Card>
+
+			<Card>
+				<CardHeader>
+					<CardTitle>Reference Requirements</CardTitle>
+					<CardDescription>
+						Configure how many work and character references carers must submit during
+						onboarding. Each required type counts toward their compliance progress.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className='space-y-6'>
+					<div className='space-y-4 rounded-md border p-4'>
+						<div className='flex items-center justify-between'>
+							<div>
+								<p className='text-sm font-medium'>Work References</p>
+								<p className='text-xs text-muted-foreground'>
+									References from previous employers or professional contacts.
+								</p>
+							</div>
+							<Switch checked={requireWork} onCheckedChange={setRequireWork} />
+						</div>
+						{requireWork && (
+							<div className='space-y-2'>
+								<Label htmlFor='work-ref-count'>Number required</Label>
+								<Input
+									id='work-ref-count'
+									type='number'
+									min='1'
+									max='5'
+									value={workCount}
+									onChange={(e) => setWorkCount(e.target.value)}
+									className='w-24'
+								/>
+							</div>
+						)}
+					</div>
+
+					<div className='space-y-4 rounded-md border p-4'>
+						<div className='flex items-center justify-between'>
+							<div>
+								<p className='text-sm font-medium'>Character References</p>
+								<p className='text-xs text-muted-foreground'>
+									References from someone who can vouch for the carer&apos;s character.
+								</p>
+							</div>
+							<Switch checked={requireChar} onCheckedChange={setRequireChar} />
+						</div>
+						{requireChar && (
+							<div className='space-y-2'>
+								<Label htmlFor='char-ref-count'>Number required</Label>
+								<Input
+									id='char-ref-count'
+									type='number'
+									min='1'
+									max='5'
+									value={charCount}
+									onChange={(e) => setCharCount(e.target.value)}
+									className='w-24'
+								/>
+							</div>
+						)}
+					</div>
+
+					<Button type='button' disabled={isSavingRefs} onClick={saveReferenceRequirements}>
+						{isSavingRefs && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+						Save reference requirements
+					</Button>
 				</CardContent>
 			</Card>
 		</div>
