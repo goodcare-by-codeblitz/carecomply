@@ -1,9 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, Users } from 'lucide-react';
+import { Search, UserPlus, Users } from 'lucide-react';
 import Link from 'next/link';
-// import { AddCarerButton, AddFirstCarerButton } from '@/components/carer-actions'
 import { Suspense } from 'react';
 import { resolveOrgAccess } from '@/lib/orgs';
 import { notFound, redirect } from 'next/navigation';
@@ -96,7 +96,14 @@ async function CarersList({
 							? 'Carers moved from current employees will appear here with their compliance history preserved.'
 							: 'Get started by adding your first carer. You can then upload their compliance documents and track their status.'}
 					</p>
-					{/* <AddFirstCarerButton /> */}
+					{view !== 'former' && (
+						<Button asChild>
+							<Link href={`/${orgSlug}/carers/new`}>
+								<UserPlus className='mr-2 h-4 w-4' />
+								Add first carer
+							</Link>
+						</Button>
+					)}
 				</CardContent>
 			</Card>
 		);
@@ -168,7 +175,12 @@ export default async function CarersPage({
 						Manage your care workers and their compliance documents.
 					</p>
 				</div>
-				{/* <AddCarerButton /> */}
+				<Button asChild>
+					<Link href={`/${orgSlug}/carers/new`}>
+						<UserPlus className='mr-2 h-4 w-4' />
+						Add Carer
+					</Link>
+				</Button>
 			</div>
 
 			{/* Search */}

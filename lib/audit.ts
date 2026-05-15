@@ -41,6 +41,10 @@ export type AuditAction =
 	| 'invitation.reinvited'
 	| 'invitation.revoked'
 	| 'onboarding.references_updated'
+	| 'reference.approved'
+	| 'reference.rejected'
+	| 'reference.requested'
+	| 'reference.responded'
 	| 'reminder.created'
 	| 'reminder.deleted'
 	| 'reminder.toggled'
@@ -60,6 +64,7 @@ export type EntityType =
 	| 'email'
 	| 'invitation'
 	| 'organization'
+	| 'reference'
 	| 'reminder'
 	| 'team_member'
 	| 'user';
@@ -176,6 +181,26 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 		cqcKeyQuestion: 'well_led',
 	},
 	'onboarding.references_updated': {
+		category: 'onboarding',
+		severity: 'info',
+		cqcKeyQuestion: 'safe',
+	},
+	'reference.approved': {
+		category: 'onboarding',
+		severity: 'info',
+		cqcKeyQuestion: 'safe',
+	},
+	'reference.rejected': {
+		category: 'onboarding',
+		severity: 'warning',
+		cqcKeyQuestion: 'safe',
+	},
+	'reference.requested': {
+		category: 'onboarding',
+		severity: 'info',
+		cqcKeyQuestion: 'safe',
+	},
+	'reference.responded': {
 		category: 'onboarding',
 		severity: 'info',
 		cqcKeyQuestion: 'safe',

@@ -180,7 +180,7 @@ export async function updateCarerOnboardingProgress(
 				.maybeSingle(),
 			admin
 				.from('carer_references')
-				.select('reference_type')
+				.select('reference_type, status')
 				.eq('carer_id', carerId),
 		]);
 
@@ -211,8 +211,9 @@ export async function updateCarerOnboardingProgress(
 
 	const reqWork = orgData?.required_work_references_count ?? 0;
 	const reqChar = orgData?.required_character_references_count ?? 0;
-	const workCount = (refRows ?? []).filter((r) => r.reference_type === 'work').length;
-	const charCount = (refRows ?? []).filter((r) => r.reference_type === 'character').length;
+	const approvedReferences = (refRows ?? []).filter((r) => r.status === 'approved');
+	const workCount = approvedReferences.filter((r) => r.reference_type === 'work').length;
+	const charCount = approvedReferences.filter((r) => r.reference_type === 'character').length;
 	const workSlot = reqWork > 0 ? 1 : 0;
 	const charSlot = reqChar > 0 ? 1 : 0;
 	const workDone = reqWork > 0 && workCount >= reqWork ? 1 : 0;

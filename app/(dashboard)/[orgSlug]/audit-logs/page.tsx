@@ -97,6 +97,10 @@ const ACTION_ICONS: Record<string, typeof FileText> = {
 	'invitation.revoked': XCircle,
 	'invitation.reinvited': Mail,
 	'onboarding.references_updated': Edit,
+	'reference.approved': CheckCircle,
+	'reference.rejected': XCircle,
+	'reference.requested': Mail,
+	'reference.responded': CheckCircle,
 	'team.member_removed': Trash2,
 	'team.role_changed': Edit,
 };
@@ -134,6 +138,10 @@ const ACTION_LABELS: Record<string, string> = {
 	'invitation.revoked': 'Revoked invitation',
 	'invitation.reinvited': 'Reinvited',
 	'onboarding.references_updated': 'Updated onboarding references',
+	'reference.approved': 'Approved reference',
+	'reference.rejected': 'Rejected reference',
+	'reference.requested': 'Requested reference',
+	'reference.responded': 'Reference responded',
 	'team.member_removed': 'Removed team member',
 	'team.role_changed': 'Changed team role',
 };
@@ -148,6 +156,7 @@ const ENTITY_ICONS: Record<string, typeof FileText> = {
 	billing: Settings,
 	document_type: FileText,
 	invitation: Mail,
+	reference: Mail,
 	team_member: Users,
 };
 
@@ -191,13 +200,13 @@ export default function AuditLogsPage() {
 		setLoading(false);
 	};
 
-	const buildAuditUrl = (exportCsv = false) => {
+	const buildAuditUrl = (exportXlsx = false) => {
 		const params = new URLSearchParams({
 			orgSlug,
 			page: String(page),
 			pageSize: String(pageSize),
 		});
-		if (exportCsv) params.set('export', 'csv');
+		if (exportXlsx) params.set('export', 'xlsx');
 		if (entityFilter !== 'all') params.set('entity_type', entityFilter);
 		if (categoryFilter !== 'all') params.set('category', categoryFilter);
 		if (severityFilter !== 'all') params.set('severity', severityFilter);
@@ -220,7 +229,7 @@ export default function AuditLogsPage() {
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
-			link.download = `carecomply-cqc-audit-${orgSlug}.csv`;
+			link.download = `carecomply-cqc-audit-${orgSlug}.xlsx`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
@@ -288,7 +297,7 @@ export default function AuditLogsPage() {
 				</div>
 				<Button type='button' variant='outline' onClick={exportAuditLogs} disabled={exporting}>
 					<Download className='mr-2 h-4 w-4' />
-					{exporting ? 'Exporting...' : 'Export CQC CSV'}
+					{exporting ? 'Exporting...' : 'Export Excel'}
 				</Button>
 			</div>
 

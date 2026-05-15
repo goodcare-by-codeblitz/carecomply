@@ -4,6 +4,11 @@ import {
 } from '@/lib/onboarding';
 import { createSystemAuditLog } from '@/lib/audit-server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import {
+	REFERENCE_SELECT_FIELDS,
+	sendReferenceRequestToN8n,
+	type ReferenceRequestResult,
+} from '@/lib/reference-requests';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -52,7 +57,9 @@ export async function POST(request: Request) {
 		const now = new Date().toISOString();
 
 		// Only delete the reference types being submitted, preserving the other type
-		const typesBeingUpdated = [...new Set(payload.references.map((r) => r.referenceType))];
+		const typesBeingUpdated = [
+			...new Set(payload.references.map((r) => r.referenceType)),
+		];
 		const { error: deleteError } = await admin
 			.from('carer_references')
 			.delete()
@@ -75,15 +82,59 @@ export async function POST(request: Request) {
 					relationship: reference.relationship,
 					notes: reference.notes || null,
 					reference_type: reference.referenceType,
+					status: 'pending',
 					created_at: now,
 					updated_at: now,
 				})),
 			)
-			.select('id, full_name, organization, email, phone, relationship, notes, reference_type');
+			.select(REFERENCE_SELECT_FIELDS);
 
 		if (error) {
 			throw error;
 		}
+
+		const requestResults = await Promise.all(
+			(data ?? []).map((reference) =>
+				sendReferenceRequestToN8n({
+					reference,
+					carer: context.carer,
+					organization: context.organization,
+				}),
+			),
+		);
+
+		const requestedReferenceIds = requestResults
+			.filter((result) => result.ok)
+			.map((result) => result.referenceId);
+
+		let returnedReferences = data ?? [];
+		const requestAttemptedAt = new Date().toISOString();
+		if (requestResults.length > 0) {
+			await Promise.all(
+				requestResults.map((requestResult) =>
+					updateReferenceRequestState(admin, requestResult, requestAttemptedAt),
+				),
+			);
+
+			const { data: refreshedReferences } = await admin
+				.from('carer_references')
+				.select(REFERENCE_SELECT_FIELDS)
+				.in(
+					'id',
+					requestResults.map((requestResult) => requestResult.referenceId),
+				);
+
+			if (refreshedReferences) {
+				const refreshedById = new Map(
+					refreshedReferences.map((reference) => [reference.id, reference]),
+				);
+				returnedReferences = returnedReferences.map(
+					(reference) => refreshedById.get(reference.id) ?? reference,
+				);
+			}
+		}
+
+		const failedRequests = requestResults.filter((result) => !result.ok);
 
 		await admin
 			.from('carers')
@@ -105,22 +156,52 @@ export async function POST(request: Request) {
 				before: { phone: context.carer.phone },
 				after: {
 					phone: payload.carerPhone || null,
-					reference_count: data?.length ?? 0,
+					reference_count: returnedReferences.length,
 				},
 				changed_fields: ['phone', 'references'],
 				reference_types_updated: typesBeingUpdated,
 				reference_relationships: payload.references.map((r) => r.relationship),
+				reference_request_handoff: {
+					requested: requestedReferenceIds.length,
+					failed: failedRequests.length,
+					configured: Boolean(process.env.N8N_REFERENCE_REQUEST_WEBHOOK_URL),
+				},
 				outcome: 'carer_onboarding_references_saved',
 			},
 		});
 
+		await Promise.all(
+			requestedReferenceIds.map((referenceId) =>
+				createSystemAuditLog({
+					action: 'reference.requested',
+					entityType: 'reference',
+					organizationId: context.carer.organization_id,
+					entityId: referenceId,
+					entityName: context.carer.full_name,
+					source: 'onboarding',
+					details: {
+						carer_id: context.carer.id,
+						carer_email: context.carer.email,
+						outcome: 'reference_request_sent_to_n8n',
+					},
+				}),
+			),
+		);
+
 		return NextResponse.json({
-			references: data ?? [],
+			references: returnedReferences,
 			carerPhone: payload.carerPhone || null,
+			referenceRequestWarning:
+				failedRequests.length > 0
+					? 'Some reference request emails could not be handed to n8n.'
+					: null,
 		});
 	} catch (error) {
 		if (error instanceof OnboardingTokenError) {
-			return NextResponse.json({ error: error.message }, { status: error.status });
+			return NextResponse.json(
+				{ error: error.message },
+				{ status: error.status },
+			);
 		}
 
 		console.error('Failed to save references:', error);
@@ -129,4 +210,30 @@ export async function POST(request: Request) {
 			{ status: 500 },
 		);
 	}
+}
+
+function updateReferenceRequestState(
+	admin: ReturnType<typeof createAdminClient>,
+	result: ReferenceRequestResult,
+	at: string,
+) {
+	if (result.ok) {
+		return admin
+			.from('carer_references')
+			.update({
+				status: 'requested',
+				request_sent_at: at,
+				request_error: null,
+				updated_at: at,
+			})
+			.eq('id', result.referenceId);
+	}
+
+	return admin
+		.from('carer_references')
+		.update({
+			request_error: result.error,
+			updated_at: at,
+		})
+		.eq('id', result.referenceId);
 }

@@ -3,6 +3,7 @@ import {
 	OnboardingTokenError,
 	updateCarerOnboardingProgress,
 } from '@/lib/onboarding';
+import { REFERENCE_SELECT_FIELDS } from '@/lib/reference-requests';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
 					.order('uploaded_at', { ascending: false }),
 				admin
 					.from('carer_references')
-					.select('id, full_name, organization, email, phone, relationship, notes, reference_type')
+					.select(REFERENCE_SELECT_FIELDS)
 					.eq('carer_id', context.carer.id)
 					.order('created_at', { ascending: true }),
 			]);

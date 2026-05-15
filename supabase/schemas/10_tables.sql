@@ -113,8 +113,23 @@ create table if not exists public.carer_references (
   full_name text not null,
   email text not null,
   phone text not null,
+  organization text,
   relationship text not null,
+  reference_type text not null default 'character' check (
+    reference_type in ('work', 'character')
+  ),
   notes text,
+  status text not null default 'pending' check (
+    status in ('pending', 'requested', 'responded', 'approved', 'rejected')
+  ),
+  request_sent_at timestamptz,
+  request_error text,
+  response_received_at timestamptz,
+  response_payload jsonb,
+  response_url text,
+  reviewed_at timestamptz,
+  reviewed_by uuid references public.profiles(id),
+  review_notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz
 );

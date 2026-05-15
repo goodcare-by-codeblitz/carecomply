@@ -14,6 +14,7 @@ const PUBLIC_PREFIXES = [
   "/api/documents/file",
   "/api/documents/review",
   "/api/onboarding",
+  "/api/references/responded",
   "/api/settings",
   "/invite",
   "/onboarding",

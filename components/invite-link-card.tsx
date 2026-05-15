@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { getInvitationLink, INVITATION_SETUP_MESSAGE } from '@/lib/invitations';
+import { cn } from '@/lib/utils';
 import { Copy, Link2, Mail, RefreshCw, XCircle } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -32,6 +33,7 @@ type InviteLinkCardProps = {
 	inviteStatus?: string | null;
 	carerName: string;
 	carerEmail: string;
+	className?: string;
 };
 
 export function InviteLinkCard({
@@ -41,6 +43,7 @@ export function InviteLinkCard({
 	inviteStatus,
 	carerName,
 	carerEmail,
+	className,
 }: InviteLinkCardProps) {
 	const [copied, setCopied] = useState(false);
 	const [currentToken, setCurrentToken] = useState(inviteToken);
@@ -72,8 +75,8 @@ export function InviteLinkCard({
 		setTimeout(() => setCopied(false), 1500);
 	};
 
-	const sendInviteEmail = async () => {
-		if (!currentToken) return;
+	const sendInviteEmail = async (token = currentToken) => {
+		if (!token) return false;
 
 		setIsSending(true);
 		try {
@@ -82,25 +85,30 @@ export function InviteLinkCard({
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					email: carerEmail,
-					token: currentToken,
+					token,
 				}),
 			});
 			const payload = (await response.json()) as { error?: string };
 
 			if (!response.ok) {
 				toast.warning(payload.error ?? 'Invite email could not be sent');
-				return;
+				return false;
 			}
 
 			toast.success('Invite email sent');
+			return true;
 		} catch {
 			toast.error('Invite email could not be sent');
+			return false;
 		} finally {
 			setIsSending(false);
 		}
 	};
 
-	const manageInvitation = async (action: 'revoke' | 'reinvite') => {
+	const manageInvitation = async (
+		action: 'revoke' | 'reinvite',
+		options: { sendAfter?: boolean } = {},
+	) => {
 		if (!inviteId) return;
 
 		setIsManaging(true);
@@ -130,8 +138,20 @@ export function InviteLinkCard({
 			setCurrentStatus(payload.invitation?.status ?? null);
 			setCurrentToken(payload.invitation?.token ?? currentToken);
 			setCurrentExpiresAt(payload.invitation?.expires_at ?? currentExpiresAt);
+			const nextToken = payload.invitation?.token ?? currentToken;
+			const emailSent =
+				action === 'reinvite' && options.sendAfter && nextToken
+					? await sendInviteEmail(nextToken)
+					: false;
+
 			toast.success(
-				action === 'reinvite' ? 'Invitation regenerated' : 'Invitation revoked',
+				action === 'reinvite'
+					? options.sendAfter
+						? emailSent
+							? 'Invitation regenerated and email sent'
+							: 'Invitation regenerated, but email was not sent'
+						: 'Invitation regenerated'
+					: 'Invitation revoked',
 			);
 		} catch {
 			toast.error('Invitation could not be updated');
@@ -141,14 +161,14 @@ export function InviteLinkCard({
 	};
 
 	return (
-		<Card>
+		<Card className={cn('flex flex-col', className)}>
 			<CardHeader>
 				<CardTitle className='text-base'>Invite Link</CardTitle>
 				<CardDescription>
 					Share onboarding access with {carerName || carerEmail}.
 				</CardDescription>
 			</CardHeader>
-			<CardContent className='space-y-3'>
+			<CardContent className='flex flex-1 flex-col space-y-3'>
 				<div className='flex gap-2'>
 					<Input
 						readOnly
@@ -181,57 +201,87 @@ export function InviteLinkCard({
 						Expires {new Date(currentExpiresAt).toLocaleDateString()}.
 					</p>
 				)}
-				<div className='grid gap-2 sm:grid-cols-3'>
+				<div className='grid gap-2 sm:grid-cols-2'>
 					<Button
 						type='button'
 						variant='outline'
 						size='sm'
 						disabled={!canUseInvite || isSending}
-						onClick={sendInviteEmail}>
+						onClick={() => sendInviteEmail()}>
 						<Mail className='mr-2 h-4 w-4' />
-						{isSending ? 'Sending...' : 'Email'}
+						{isSending ? 'Sending...' : 'Send invite email'}
 					</Button>
-					{currentStatus === 'revoked' ? (
+					<Button
+						type='button'
+						variant='outline'
+						size='sm'
+						disabled={!inviteId || currentStatus === 'accepted' || isManaging}
+						onClick={() => manageInvitation('reinvite')}>
+						<RefreshCw className='mr-2 h-4 w-4' />
+						Regenerate link
+					</Button>
+					{currentStatus === 'revoked' || currentStatus === 'expired' || isExpired ? (
 						<Button
 							type='button'
 							variant='outline'
 							size='sm'
-							disabled={!inviteId || isManaging}
-							onClick={() => manageInvitation('reinvite')}>
+							disabled={
+								!inviteId ||
+								currentStatus === 'accepted' ||
+								isManaging ||
+								isSending
+							}
+							onClick={() => manageInvitation('reinvite', { sendAfter: true })}>
 							<RefreshCw className='mr-2 h-4 w-4' />
 							Reinvite
 						</Button>
 					) : (
-						<AlertDialog>
-							<AlertDialogTrigger asChild>
-								<Button
-									type='button'
-									variant='outline'
-									size='sm'
-									disabled={!canUseInvite || isManaging}>
-									<XCircle className='mr-2 h-4 w-4' />
-									Revoke
-								</Button>
-							</AlertDialogTrigger>
-							<AlertDialogContent>
-								<AlertDialogHeader>
-									<AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
-									<AlertDialogDescription>
-										The current onboarding link will stop working immediately.
-										You can reinvite {carerName || carerEmail} later with a new
-										link.
-									</AlertDialogDescription>
-								</AlertDialogHeader>
-								<AlertDialogFooter>
-									<AlertDialogCancel>Cancel</AlertDialogCancel>
-									<AlertDialogAction
-										variant='destructive'
-										onClick={() => manageInvitation('revoke')}>
-										Revoke invitation
-									</AlertDialogAction>
-								</AlertDialogFooter>
-							</AlertDialogContent>
-						</AlertDialog>
+						<>
+							<Button
+								type='button'
+								variant='outline'
+								size='sm'
+								disabled={
+									!inviteId ||
+									currentStatus === 'accepted' ||
+									isManaging ||
+									isSending
+								}
+								onClick={() => manageInvitation('reinvite', { sendAfter: true })}>
+								<Mail className='mr-2 h-4 w-4' />
+								Regenerate & send
+							</Button>
+							<AlertDialog>
+								<AlertDialogTrigger asChild>
+									<Button
+										type='button'
+										variant='outline'
+										size='sm'
+										disabled={!canUseInvite || isManaging}>
+										<XCircle className='mr-2 h-4 w-4' />
+										Revoke
+									</Button>
+								</AlertDialogTrigger>
+								<AlertDialogContent>
+									<AlertDialogHeader>
+										<AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
+										<AlertDialogDescription>
+											The current onboarding link will stop working immediately.
+											You can reinvite {carerName || carerEmail} later with a new
+											link.
+										</AlertDialogDescription>
+									</AlertDialogHeader>
+									<AlertDialogFooter>
+										<AlertDialogCancel>Cancel</AlertDialogCancel>
+										<AlertDialogAction
+											variant='destructive'
+											onClick={() => manageInvitation('revoke')}>
+											Revoke invitation
+										</AlertDialogAction>
+									</AlertDialogFooter>
+								</AlertDialogContent>
+							</AlertDialog>
+						</>
 					)}
 				</div>
 				{!currentToken && (
