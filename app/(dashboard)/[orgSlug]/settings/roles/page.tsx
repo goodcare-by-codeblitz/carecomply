@@ -72,6 +72,15 @@ function normalizeRole(row: unknown): RoleWithPermissions {
 	};
 }
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+	const contentType = response.headers.get('content-type') ?? '';
+	if (!contentType.includes('application/json')) {
+		throw new Error('Role settings request failed.');
+	}
+
+	return (await response.json()) as T;
+}
+
 export default function RolesSettingsPage() {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
 	const router = useRouter();
@@ -185,37 +194,38 @@ export default function RolesSettingsPage() {
 		}
 
 		setIsCreatingRole(true);
-		const supabase = createClient();
-		const { data, error } = await supabase
-			.from('roles')
-			.insert({
-				organization_id: organization.id,
-				name: roleName,
-				description: customRoleDescription.trim() || null,
-				scope: 'ORGANIZATION',
-				is_system_role: false,
-			})
-			.select('id, name, description, is_system_role')
-			.single();
+		let role: RoleWithPermissions | null = null;
 
-		setIsCreatingRole(false);
+		try {
+			const response = await fetch('/api/settings/roles', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					orgId: organization.id,
+					name: roleName,
+					description: customRoleDescription.trim(),
+				}),
+			});
+			const payload = await readJsonResponse<{
+				role?: RoleWithPermissions;
+				error?: string;
+			}>(response);
 
-		if (error) {
-			toast.error(
-				isMissingRelationError(error)
-					? 'Role setup is not available yet'
-					: 'Role could not be created',
-			);
+			if (!response.ok || !payload.role) {
+				throw new Error(payload.error || 'Role could not be created');
+			}
+
+			role = payload.role;
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : 'Role could not be created');
+			setIsCreatingRole(false);
 			return;
 		}
 
-		setRoles((current) => [
-			...current,
-			{
-				...(data as Omit<RoleWithPermissions, 'permissionIds'>),
-				permissionIds: [],
-			},
-		]);
+		setIsCreatingRole(false);
+		if (!role) return;
+
+		setRoles((current) => [...current, role]);
 		setCustomRoleName('');
 		setCustomRoleDescription('');
 		toast.success('Role created');
@@ -226,6 +236,8 @@ export default function RolesSettingsPage() {
 		permission: Permission,
 		checked: boolean,
 	) => {
+		if (!organization) return;
+
 		if (role.is_system_role) {
 			toast.error('Protected system roles cannot be edited');
 			return;
@@ -233,21 +245,33 @@ export default function RolesSettingsPage() {
 
 		const updateKey = `${role.id}:${permission.id}`;
 		setUpdatingPermission(updateKey);
-		const supabase = createClient();
-		const result = checked
-			? await supabase
-					.from('role_permissions')
-					.insert({ role_id: role.id, permission_id: permission.id })
-			: await supabase
-					.from('role_permissions')
-					.delete()
-					.eq('role_id', role.id)
-					.eq('permission_id', permission.id);
+		let failedMessage: string | null = null;
+
+		try {
+			const response = await fetch('/api/settings/roles', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					orgId: organization.id,
+					roleId: role.id,
+					permissionId: permission.id,
+					checked,
+				}),
+			});
+			const payload = await readJsonResponse<{ error?: string }>(response);
+
+			if (!response.ok) {
+				throw new Error(payload.error || 'Permission could not be updated');
+			}
+		} catch (error) {
+			failedMessage =
+				error instanceof Error ? error.message : 'Permission could not be updated';
+		}
 
 		setUpdatingPermission(null);
 
-		if (result.error) {
-			toast.error('Permission could not be updated');
+		if (failedMessage) {
+			toast.error(failedMessage);
 			return;
 		}
 

@@ -53,6 +53,8 @@ export type AuditAction =
 	| 'team.invited'
 	| 'team.member_removed'
 	| 'team.role_changed'
+	| 'user.login_attempted'
+	| 'user.login_failed'
 	| 'user.login'
 	| 'user.logout';
 
@@ -217,6 +219,26 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	},
 	'team.role_changed': {
 		category: 'governance',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
+	'user.login_attempted': {
+		category: 'system',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
+	'user.login_failed': {
+		category: 'system',
+		severity: 'warning',
+		cqcKeyQuestion: 'well_led',
+	},
+	'user.login': {
+		category: 'system',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
+	'user.logout': {
+		category: 'system',
 		severity: 'info',
 		cqcKeyQuestion: 'well_led',
 	},

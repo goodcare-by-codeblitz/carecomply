@@ -27,6 +27,15 @@ import { toast } from 'sonner';
 const LOGO_BUCKET = 'organization-assets';
 const MAX_LOGO_SIZE = 2 * 1024 * 1024;
 
+async function readJsonResponse<T>(response: Response): Promise<T> {
+	const contentType = response.headers.get('content-type') ?? '';
+	if (!contentType.includes('application/json')) {
+		throw new Error('Organization settings request failed.');
+	}
+
+	return (await response.json()) as T;
+}
+
 export default function SettingsProfilePage() {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
 	const router = useRouter();
@@ -80,20 +89,40 @@ export default function SettingsProfilePage() {
 		}
 
 		setIsSavingName(true);
-		const supabase = createClient();
-		const { data, error } = await supabase
-			.from('organizations')
-			.update({ name: nextName })
-			.eq('id', organization.id)
-			.select('*')
-			.single();
+		let data: UserOrganization | null = null;
 
-		setIsSavingName(false);
+		try {
+			const response = await fetch('/api/settings/organization', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'profile',
+					orgId: organization.id,
+					name: nextName,
+				}),
+			});
+			const payload = await readJsonResponse<{
+				organization?: UserOrganization;
+				error?: string;
+			}>(response);
 
-		if (error) {
-			toast.error('Failed to update organization profile');
+			if (!response.ok || !payload.organization) {
+				throw new Error(payload.error || 'Failed to update organization profile');
+			}
+
+			data = payload.organization;
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Failed to update organization profile',
+			);
+			setIsSavingName(false);
 			return;
 		}
+
+		setIsSavingName(false);
+		if (!data) return;
 
 		const updatedOrg = {
 			...organization,
@@ -149,23 +178,43 @@ export default function SettingsProfilePage() {
 			data: { publicUrl },
 		} = supabase.storage.from(LOGO_BUCKET).getPublicUrl(logoPath);
 
-		const { data, error: updateError } = await supabase
-			.from('organizations')
-			.update({ logo_path: logoPath, logo_url: publicUrl })
-			.eq('id', organization.id)
-			.select('*')
-			.single();
+		let data: UserOrganization | null = null;
 
-		setIsUploadingLogo(false);
+		try {
+			const response = await fetch('/api/settings/organization', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'logo',
+					orgId: organization.id,
+					logoPath,
+					logoUrl: publicUrl,
+				}),
+			});
+			const payload = await readJsonResponse<{
+				organization?: UserOrganization;
+				error?: string;
+			}>(response);
 
-		if (updateError) {
+			if (!response.ok || !payload.organization) {
+				throw new Error(payload.error || 'Failed to save logo');
+			}
+
+			data = payload.organization;
+		} catch (error) {
+			setIsUploadingLogo(false);
 			toast.error(
-				isMissingColumnOrBucketError(updateError)
+				error instanceof Error && isMissingColumnOrBucketError(error)
 					? 'Logo columns are not set up on organizations yet'
-					: 'Failed to save logo',
+					: error instanceof Error
+						? error.message
+						: 'Failed to save logo',
 			);
 			return;
 		}
+
+		setIsUploadingLogo(false);
+		if (!data) return;
 
 		const updatedOrg = {
 			...organization,

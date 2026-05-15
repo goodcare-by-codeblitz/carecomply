@@ -8,6 +8,7 @@ const AUTH_REDIRECT_PATHS = ["/auth/login", "/auth/sign-up"];
 const PUBLIC_PATHS = ["/", "/pricing"];
 const PUBLIC_PREFIXES = [
   "/api/billing/webhook",
+  "/api/auth/login",
   "/api/organizations/slug-availability",
   "/api/invitations/accept",
   "/api/invitations/details",

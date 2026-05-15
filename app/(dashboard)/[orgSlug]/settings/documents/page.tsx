@@ -237,27 +237,43 @@ export default function DocumentSettingsPage() {
 		const charVal = requireChar ? Math.max(1, Math.min(5, parseInt(charCount) || 2)) : null;
 
 		setIsSavingRefs(true);
-		const supabase = createClient();
-		const { error } = await supabase
-			.from('organizations')
-			.update({
+		try {
+			const response = await fetch('/api/settings/organization', {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					action: 'reference_requirements',
+					orgId: organization.id,
+					requiredWorkReferencesCount: workVal,
+					requiredCharacterReferencesCount: charVal,
+				}),
+			});
+			const payload = await readJsonResponse<{
+				organization?: typeof organization;
+				error?: string;
+			}>(response);
+
+			if (!response.ok || !payload.organization) {
+				throw new Error(
+					payload.error || 'Reference requirements could not be saved',
+				);
+			}
+
+			toast.success('Reference requirements updated');
+			updateOrganization(organization.id, {
 				required_work_references_count: workVal,
 				required_character_references_count: charVal,
-			})
-			.eq('id', organization.id);
-
-		setIsSavingRefs(false);
-
-		if (error) {
-			toast.error('Reference requirements could not be saved');
+			});
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Reference requirements could not be saved',
+			);
+		} finally {
+			setIsSavingRefs(false);
 			return;
 		}
-
-		toast.success('Reference requirements updated');
-		updateOrganization(organization.id, {
-			required_work_references_count: workVal,
-			required_character_references_count: charVal,
-		});
 	};
 
 	const deleteDocumentType = async (documentType: DocumentType) => {

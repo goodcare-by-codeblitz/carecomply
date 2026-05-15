@@ -14,6 +14,17 @@ type AuditRequestContext = {
 	userAgent?: string | null;
 };
 
+type AuthAuditOutcome = 'attempted' | 'success' | 'failure' | 'logout';
+
+type AuthAuditEventParams = {
+	email?: string | null;
+	userId?: string | null;
+	outcome: AuthAuditOutcome;
+	failureReason?: string | null;
+	details?: Record<string, unknown>;
+	request?: Request;
+};
+
 type CreateAuditLogParams = {
 	action: AuditAction;
 	entityType: EntityType;
@@ -106,4 +117,116 @@ export async function createSystemAuditLog(
 		userId: null,
 		userEmail: null,
 	});
+}
+
+export async function createAuthAuditEvent(params: AuthAuditEventParams) {
+	try {
+		const admin = createAdminClient();
+		const requestContext = getRequestContext(params.request);
+		const email = normalizeEmail(params.email);
+		const organizations = await resolveAuthAuditOrganizations({
+			userId: params.userId,
+			email,
+		});
+		const matchedOrganizationIds = organizations.map(
+			(organization) => organization.id,
+		);
+
+		const { error } = await admin.from('auth_audit_events').insert({
+			email,
+			user_id: params.userId ?? null,
+			outcome: params.outcome,
+			failure_reason: params.failureReason ?? null,
+			matched_organization_ids: matchedOrganizationIds,
+			details: {
+				...(params.details ?? {}),
+				ip_address: requestContext.ipAddress,
+				user_agent: requestContext.userAgent,
+			},
+			ip_address: requestContext.ipAddress,
+			user_agent: requestContext.userAgent,
+		});
+
+		if (error) {
+			console.error('Failed to create auth audit event:', error);
+		}
+
+		const action = getAuthAuditAction(params.outcome);
+		await Promise.all(
+			organizations.map((organization) =>
+				createAuditLog({
+					action,
+					entityType: 'user',
+					organizationId: organization.id,
+					entityId: params.userId ?? null,
+					entityName: email,
+					userId: params.userId ?? null,
+					userEmail: email,
+					details: {
+						...(params.details ?? {}),
+						outcome: params.outcome,
+						failure_reason: params.failureReason ?? null,
+						matched_organization_ids: matchedOrganizationIds,
+					},
+					source: 'system',
+					request: params.request,
+				}),
+			),
+		);
+
+		return { matchedOrganizationIds };
+	} catch (error) {
+		console.error('Failed to create auth audit event:', error);
+		return { matchedOrganizationIds: [] };
+	}
+}
+
+async function resolveAuthAuditOrganizations(params: {
+	userId?: string | null;
+	email?: string | null;
+}) {
+	const admin = createAdminClient();
+	let userId = params.userId ?? null;
+
+	if (!userId && params.email) {
+		const { data: profile } = await admin
+			.from('profiles')
+			.select('id')
+			.ilike('email', params.email)
+			.maybeSingle();
+		userId = profile?.id ?? null;
+	}
+
+	if (!userId) return [];
+
+	const { data, error } = await admin
+		.from('organization_memberships')
+		.select('organizations(id, name, slug)')
+		.eq('user_id', userId)
+		.is('deleted_at', null);
+
+	if (error || !Array.isArray(data)) return [];
+
+	return data
+		.map((row) => {
+			const organizations = (row as {
+				organizations?: { id: string; name: string; slug: string } | { id: string; name: string; slug: string }[] | null;
+			}).organizations;
+			return Array.isArray(organizations) ? organizations[0] : organizations;
+		})
+		.filter((organization): organization is { id: string; name: string; slug: string } =>
+			Boolean(organization?.id),
+		);
+}
+
+function getAuthAuditAction(outcome: AuthAuditOutcome): AuditAction {
+	if (outcome === 'failure') return 'user.login_failed';
+	if (outcome === 'success') return 'user.login';
+	if (outcome === 'logout') return 'user.logout';
+	return 'user.login_attempted';
+}
+
+function normalizeEmail(email?: string | null) {
+	const trimmed = email?.trim().toLowerCase();
+	return trimmed || null;
 }

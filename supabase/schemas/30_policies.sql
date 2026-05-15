@@ -11,6 +11,7 @@ alter table public.documents enable row level security;
 alter table public.organization_billing enable row level security;
 alter table public.stripe_events enable row level security;
 alter table public.audit_logs enable row level security;
+alter table public.auth_audit_events enable row level security;
 alter table public.organization_invitations enable row level security;
 
 create policy "Authenticated users can view permissions"
@@ -196,6 +197,7 @@ using (public.has_org_permission(organization_id, 'audit.view'));
 
 grant select on table public.audit_logs to authenticated;
 grant select, insert, update, delete on table public.audit_logs to service_role;
+grant select, insert, update, delete on table public.auth_audit_events to service_role;
 
 grant select, insert, update, delete on table public.carers to authenticated;
 grant select, insert, update, delete on table public.organization_invitations to authenticated;

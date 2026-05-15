@@ -12,8 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { initOrgStore } from '@/lib/init-org';
 import { initProfile } from '@/lib/init-profile';
-import { getOrgRedirectPath, getUserOrganizationsResult } from '@/lib/orgs';
-import { createClient } from '@/lib/supabase/client';
+import { getOrgRedirectPath, type UserOrganization } from '@/lib/orgs';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -28,6 +27,15 @@ type PendingCreateOrg = {
 	plan?: string;
 	interval?: string;
 };
+
+async function readJsonResponse<T>(response: Response): Promise<T> {
+	const contentType = response.headers.get('content-type') ?? '';
+	if (!contentType.includes('application/json')) {
+		throw new Error('Login failed. Please try again.');
+	}
+
+	return (await response.json()) as T;
+}
 
 export function LoginForm({
 	className,
@@ -87,40 +95,29 @@ export function LoginForm({
 
 	const handleLogin = async (e: React.SubmitEvent<HTMLFormElement>) => {
 		e.preventDefault();
-		const supabase = createClient();
 		setIsLoading(true);
 		setError(null);
 
 		try {
-			const { error } = await supabase.auth.signInWithPassword({
-				email,
-				password,
+			const response = await fetch('/api/auth/login', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ email, password }),
 			});
-			if (error) throw error;
+			const payload = await readJsonResponse<{
+				error?: string;
+				organizations?: UserOrganization[];
+			}>(response);
+
+			if (!response.ok || !payload.organizations) {
+				throw new Error(payload.error || 'Login failed. Please try again.');
+			}
+
 			// Update this route to redirect to an authenticated route. The user already has an active session.
 			await initProfile();
 			await initOrgStore();
 
-			const {
-				data: { user },
-			} = await supabase.auth.getUser();
-
-			if (!user) {
-				throw new Error('Unable to load your account after login.');
-			}
-
-			const organizationsResult = await getUserOrganizationsResult(
-				supabase,
-				user.id,
-			);
-
-			if (!organizationsResult.ok) {
-				throw new Error(
-					'Your organizations could not be loaded. Please try again in a moment.',
-				);
-			}
-
-			const organizations = organizationsResult.organizations;
+			const organizations = payload.organizations;
 			const pendingCreateOrgRedirect =
 				organizations.length === 0 || organizations.length === 1
 					? getCreateOrgRedirect(email)
