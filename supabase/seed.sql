@@ -38,16 +38,8 @@ VALUES
 (NULL, 'platform_super_admin', 'PLATFORM', true, 'Full platform control. Can manage all tenants, billing, and system settings.'),
 (NULL, 'platform_admin', 'PLATFORM', true, 'Can manage tenants and system operations but limited access to critical settings.'),
 (NULL, 'support', 'PLATFORM', true, 'Support role with read access and limited operational capabilities.')
-ON CONFLICT (organization_id, name)
+ON CONFLICT (name) WHERE organization_id IS NULL AND scope = 'PLATFORM'
 DO UPDATE SET
   description = EXCLUDED.description,
   scope = EXCLUDED.scope,
   is_system_role = EXCLUDED.is_system_role;
-
-
-INSERT INTO roles (organization_id, name, scope, is_system_role)
-VALUES
-(NULL, 'platform_super_admin', 'PLATFORM', true),
-(NULL, 'platform_admin', 'PLATFORM', true),
-(NULL, 'support', 'PLATFORM', true)
-ON CONFLICT (organization_id, name) DO NOTHING;

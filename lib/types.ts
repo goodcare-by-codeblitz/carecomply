@@ -24,6 +24,7 @@ export type Membership = {
 	user_id: string;
 	organization_id: string;
 	deleted_at?: string | null;
+	status?: string | null;
 	roles: Role | null; // ✅ FIXED (object, not array)
 };
 
@@ -57,6 +58,7 @@ export type NormalizedState = {
 			user_id: string;
 			organization_id: string;
 			role_id: string | null;
+			status?: string | null;
 		}
 	>;
 	roles: Record<string, Role>;

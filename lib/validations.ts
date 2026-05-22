@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { personDetailsBaseSchema } from './person-profile';
 
 // Auth schemas
 export const loginSchema = z.object({
@@ -25,14 +26,16 @@ export const signupSchema = z
 export const newCarerSchema = z.object({
 	fullName: z.string().min(2, 'Name must be at least 2 characters'),
 	email: z.email('Please enter a valid email address'),
-	phone: z
-		.string()
-		.optional()
-		.refine(
-			(val) => !val || /^[\d\s+()-]+$/.test(val),
-			'Please enter a valid phone number',
-		),
-});
+	...personDetailsBaseSchema.shape,
+}).refine(
+	(data) =>
+		!data.emergencyContactName ||
+		Boolean(data.emergencyContactPhone || data.emergencyContactEmail),
+	{
+		message: 'Emergency contact phone or email is required.',
+		path: ['emergencyContactPhone'],
+	},
+);
 
 // Document upload schema
 export const documentUploadSchema = z.object({

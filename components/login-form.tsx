@@ -28,6 +28,11 @@ type PendingCreateOrg = {
 	interval?: string;
 };
 
+type PlatformAccess = {
+	role: 'platform_super_admin' | 'platform_admin' | 'support' | null;
+	canAccessAdmin: boolean;
+};
+
 async function readJsonResponse<T>(response: Response): Promise<T> {
 	const contentType = response.headers.get('content-type') ?? '';
 	if (!contentType.includes('application/json')) {
@@ -47,6 +52,7 @@ export function LoginForm({
 	const [isLoading, setIsLoading] = useState(false);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [inviteRedirect, setInviteRedirect] = useState<string | null>(null);
+	const [adminRedirect, setAdminRedirect] = useState(false);
 	const router = useRouter();
 
 	useEffect(() => {
@@ -61,6 +67,11 @@ export function LoginForm({
 
 		if (nextParam === 'create-org') {
 			setNotice('Log in to add a new organization to your account.');
+		}
+
+		if (nextParam === 'admin') {
+			setAdminRedirect(true);
+			setNotice('Log in with a platform admin account to continue.');
 		}
 
 		if (nextParam === 'invite' && tokenParam) {
@@ -107,6 +118,7 @@ export function LoginForm({
 			const payload = await readJsonResponse<{
 				error?: string;
 				organizations?: UserOrganization[];
+				platformAccess?: PlatformAccess;
 			}>(response);
 
 			if (!response.ok || !payload.organizations) {
@@ -122,10 +134,16 @@ export function LoginForm({
 				organizations.length === 0 || organizations.length === 1
 					? getCreateOrgRedirect(email)
 					: null;
+			const platformAdminRedirect =
+				payload.platformAccess?.canAccessAdmin &&
+				(adminRedirect || organizations.length === 0)
+					? '/admin/reminders'
+					: null;
 
 			router.push(
 				inviteRedirect ??
 					pendingCreateOrgRedirect ??
+					platformAdminRedirect ??
 					getOrgRedirectPath(organizations),
 			);
 		} catch (error: unknown) {

@@ -6,9 +6,10 @@ import { createSystemAuditLog } from '@/lib/audit-server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
 	REFERENCE_SELECT_FIELDS,
-	sendReferenceRequestToN8n,
+	enqueueReferenceRequestJob,
 	type ReferenceRequestResult,
 } from '@/lib/reference-requests';
+import { processReferenceJobBatch } from '@/lib/reference-worker';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -95,13 +96,19 @@ export async function POST(request: Request) {
 
 		const requestResults = await Promise.all(
 			(data ?? []).map((reference) =>
-				sendReferenceRequestToN8n({
-					reference,
-					carer: context.carer,
-					organization: context.organization,
+				enqueueReferenceRequestJob({
+					admin,
+					referenceId: reference.id,
+					organizationId: context.carer.organization_id,
+					carerId: context.carer.id,
 				}),
 			),
 		);
+		if (requestResults.some((result) => result.ok)) {
+			await processReferenceJobBatch(admin, 25).catch((error) => {
+				console.error('[onboarding-references] worker processing failed', error);
+			});
+		}
 
 		const requestedReferenceIds = requestResults
 			.filter((result) => result.ok)
@@ -164,7 +171,7 @@ export async function POST(request: Request) {
 				reference_request_handoff: {
 					requested: requestedReferenceIds.length,
 					failed: failedRequests.length,
-					configured: Boolean(process.env.N8N_REFERENCE_REQUEST_WEBHOOK_URL),
+					configured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
 				},
 				outcome: 'carer_onboarding_references_saved',
 			},
@@ -182,7 +189,7 @@ export async function POST(request: Request) {
 					details: {
 						carer_id: context.carer.id,
 						carer_email: context.carer.email,
-						outcome: 'reference_request_sent_to_n8n',
+						outcome: 'reference_request_queued',
 					},
 				}),
 			),
@@ -193,7 +200,7 @@ export async function POST(request: Request) {
 			carerPhone: payload.carerPhone || null,
 			referenceRequestWarning:
 				failedRequests.length > 0
-					? 'Some reference request emails could not be handed to n8n.'
+					? 'Some reference request emails could not be queued.'
 					: null,
 		});
 	} catch (error) {
@@ -221,8 +228,6 @@ function updateReferenceRequestState(
 		return admin
 			.from('carer_references')
 			.update({
-				status: 'requested',
-				request_sent_at: at,
 				request_error: null,
 				updated_at: at,
 			})

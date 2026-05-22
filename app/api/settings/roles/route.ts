@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { getBillingEntitlements } from '@/lib/billing';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -16,6 +17,11 @@ const permissionSchema = z.object({
 	roleId: z.string().uuid(),
 	permissionId: z.string().uuid(),
 	checked: z.boolean(),
+});
+
+const deleteRoleSchema = z.object({
+	orgId: z.string().uuid(),
+	roleId: z.string().uuid(),
 });
 
 async function requireSettingsManage(orgId: string) {
@@ -49,6 +55,27 @@ async function requireSettingsManage(orgId: string) {
 	return { ok: true as const };
 }
 
+async function requirePro(orgId: string) {
+	const admin = createAdminClient();
+	const { data } = await admin
+		.from('organization_billing')
+		.select('plan, status')
+		.eq('organization_id', orgId)
+		.maybeSingle();
+
+	if (getBillingEntitlements(data?.plan, data?.status).customRoles) {
+		return { ok: true as const };
+	}
+
+	return {
+		ok: false as const,
+		response: NextResponse.json(
+			{ error: 'Custom roles and permissions are available on Pro.' },
+			{ status: 403 },
+		),
+	};
+}
+
 export async function POST(request: Request) {
 	const result = createRoleSchema.safeParse(await request.json().catch(() => null));
 
@@ -61,6 +88,9 @@ export async function POST(request: Request) {
 
 	const auth = await requireSettingsManage(result.data.orgId);
 	if (!auth.ok) return auth.response;
+
+	const pro = await requirePro(result.data.orgId);
+	if (!pro.ok) return pro.response;
 
 	const admin = createAdminClient();
 	const { data, error } = await admin
@@ -113,6 +143,9 @@ export async function PATCH(request: Request) {
 
 	const auth = await requireSettingsManage(result.data.orgId);
 	if (!auth.ok) return auth.response;
+
+	const pro = await requirePro(result.data.orgId);
+	if (!pro.ok) return pro.response;
 
 	const admin = createAdminClient();
 	const [{ data: role }, { data: permission }] = await Promise.all([
@@ -198,6 +231,129 @@ export async function PATCH(request: Request) {
 			changed_fields: ['role_permissions'],
 			permission_checked: PERMISSIONS.SETTINGS_MANAGE,
 			outcome: result.data.checked ? 'role_permission_added' : 'role_permission_removed',
+		},
+		request,
+	});
+
+	return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(request: Request) {
+	const result = deleteRoleSchema.safeParse(await request.json().catch(() => null));
+
+	if (!result.success) {
+		return NextResponse.json(
+			{ error: 'Please provide a valid role to delete.' },
+			{ status: 400 },
+		);
+	}
+
+	const auth = await requireSettingsManage(result.data.orgId);
+	if (!auth.ok) return auth.response;
+
+	const pro = await requirePro(result.data.orgId);
+	if (!pro.ok) return pro.response;
+
+	const admin = createAdminClient();
+	const { data: role, error: roleError } = await admin
+		.from('roles')
+		.select('id, name, description, is_system_role, organization_id')
+		.eq('id', result.data.roleId)
+		.eq('organization_id', result.data.orgId)
+		.maybeSingle();
+
+	if (roleError) {
+		console.error('[settings-roles] role lookup failed before delete', roleError);
+		return NextResponse.json(
+			{ error: 'Role could not be loaded.' },
+			{ status: 500 },
+		);
+	}
+
+	if (!role) {
+		return NextResponse.json(
+			{ error: 'Role could not be found.' },
+			{ status: 404 },
+		);
+	}
+
+	if (role.is_system_role) {
+		return NextResponse.json(
+			{ error: 'Protected system roles cannot be deleted.' },
+			{ status: 409 },
+		);
+	}
+
+	const { count: assignedCount, error: assignedError } = await admin
+		.from('organization_memberships')
+		.select('id', { count: 'exact', head: true })
+		.eq('organization_id', result.data.orgId)
+		.eq('role_id', result.data.roleId)
+		.is('deleted_at', null);
+
+	if (assignedError) {
+		console.error('[settings-roles] role assignment check failed', assignedError);
+		return NextResponse.json(
+			{ error: 'Role assignments could not be checked.' },
+			{ status: 500 },
+		);
+	}
+
+	if ((assignedCount ?? 0) > 0) {
+		return NextResponse.json(
+			{
+				error:
+					'Reassign team members using this role before deleting it.',
+			},
+			{ status: 409 },
+		);
+	}
+
+	const { data: beforePermissions } = await admin
+		.from('role_permissions')
+		.select('permission_id')
+		.eq('role_id', result.data.roleId);
+
+	const { error: permissionDeleteError } = await admin
+		.from('role_permissions')
+		.delete()
+		.eq('role_id', result.data.roleId);
+
+	if (permissionDeleteError) {
+		console.error('[settings-roles] role permission delete failed', permissionDeleteError);
+		return NextResponse.json(
+			{ error: 'Role permissions could not be removed.' },
+			{ status: 500 },
+		);
+	}
+
+	const { error: deleteError } = await admin
+		.from('roles')
+		.delete()
+		.eq('id', result.data.roleId)
+		.eq('organization_id', result.data.orgId);
+
+	if (deleteError) {
+		console.error('[settings-roles] role delete failed', deleteError);
+		return NextResponse.json(
+			{ error: 'Role could not be deleted.' },
+			{ status: 500 },
+		);
+	}
+
+	await createUserAuditLog({
+		action: 'settings.updated',
+		entityType: 'organization',
+		organizationId: result.data.orgId,
+		entityId: role.id,
+		entityName: role.name,
+		details: {
+			setting_area: 'roles',
+			before: { ...role, permissionIds: beforePermissions ?? [] },
+			after: null,
+			changed_fields: ['roles', 'role_permissions'],
+			permission_checked: PERMISSIONS.SETTINGS_MANAGE,
+			outcome: 'role_deleted',
 		},
 		request,
 	});

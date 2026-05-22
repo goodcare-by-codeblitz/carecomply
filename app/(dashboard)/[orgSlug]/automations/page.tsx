@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from '@/components/ui/card';
 import {
 	Dialog,
 	DialogContent,
@@ -15,8 +16,9 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-	DialogTrigger,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
 	Select,
 	SelectContent,
@@ -24,750 +26,701 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { getCurrentOrgBySlug } from '@/lib/orgs';
+import { createClient } from '@/lib/supabase/client';
 import {
-	Plus,
-	Zap,
+	AlertCircle,
 	Bell,
 	Clock,
+	Loader2,
 	Mail,
-	MoreHorizontal,
 	Pencil,
-	Trash2,
-	AlertCircle,
-	CheckCircle2,
+	Plus,
 	Send,
+	Trash2,
+	Zap,
 } from 'lucide-react';
-import {
-	DropdownMenu,
-	DropdownMenuContent,
-	DropdownMenuItem,
-	DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { useParams, useRouter } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { z } from 'zod';
-import { useParams } from 'next/navigation';
-import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
-// import { logAction } from '@/lib/audit'
 
-interface Reminder {
+type Reminder = {
 	id: string;
+	document_type_id: string | null;
 	name: string;
-	trigger_type: 'days_before_expiry' | 'days_after_upload' | 'manual';
+	trigger_type: 'days_before_expiry' | 'days_after_expiry';
 	trigger_days: number | null;
+	recipient_type: 'carer' | 'management';
+	min_plan: 'starter' | 'pro';
+	subject_template: string | null;
 	message_template: string | null;
+	is_system: boolean;
 	is_active: boolean;
-	created_at: string;
-}
+	document_types?: { name: string } | { name: string }[] | null;
+};
 
-interface ReminderLog {
+type ReminderLog = {
 	id: string;
 	sent_at: string;
 	channel: string;
 	status: string;
+	recipient_type: string;
+	recipient_email: string | null;
+	error_message: string | null;
 	carers: {
 		full_name: string;
 		email: string;
-	};
+	} | null;
 	documents: {
 		file_name: string;
-		document_types: {
-			name: string;
-		};
+		document_types: { name: string } | { name: string }[] | null;
 	} | null;
+};
+
+type DocumentType = {
+	id: string;
+	name: string;
+};
+
+type AutomationPayload = {
+	reminders?: Reminder[];
+	logs?: ReminderLog[];
+	documentTypes?: DocumentType[];
+	billing?: {
+		plan: 'starter' | 'pro';
+		status: string;
+		isPro: boolean;
+	};
+	warnings?: { code: string; message: string }[];
+	error?: string;
+};
+
+type FormState = {
+	id?: string;
+	name: string;
+	documentTypeId: string;
+	triggerType: 'days_before_expiry' | 'days_after_expiry';
+	triggerDays: string;
+	recipientType: 'carer' | 'management';
+	subjectTemplate: string;
+	messageTemplate: string;
+	isActive: boolean;
+};
+
+const ALL_DOCUMENT_TYPES = 'all';
+
+const emptyForm: FormState = {
+	name: '',
+	documentTypeId: ALL_DOCUMENT_TYPES,
+	triggerType: 'days_before_expiry',
+	triggerDays: '30',
+	recipientType: 'carer',
+	subjectTemplate: '{{document_type}} renewal reminder',
+	messageTemplate:
+		'Hi {{carer_name}},\n\nYour {{document_type}} for {{organization_name}} expires on {{expiry_date}}.\n\nUpload a renewed document here: {{onboarding_link}}',
+	isActive: true,
+};
+
+async function readJson<T>(response: Response): Promise<T> {
+	const contentType = response.headers.get('content-type') ?? '';
+	if (!contentType.includes('application/json')) {
+		const preview = (await response.text()).replace(/\s+/g, ' ').slice(0, 180);
+		throw new Error(
+			response.status === 401
+				? 'Please sign in again to view automations.'
+				: `Automation request returned ${response.status} ${response.statusText || ''} from ${response.url || 'unknown URL'} with content-type "${contentType || 'unknown'}"${preview ? `: ${preview}` : '.'}`,
+		);
+	}
+	return (await response.json()) as T;
 }
 
-const reminderSchema = z.object({
-	name: z.string().min(3, 'Name must be at least 3 characters'),
-	trigger_type: z.enum(['days_before_expiry', 'days_after_upload', 'manual']),
-	trigger_days: z.number().min(1).max(365).nullable(),
-	message_template: z.string().optional(),
-	is_active: z.boolean(),
-});
-
-type ReminderInput = z.infer<typeof reminderSchema>;
+function normalizeRelation<T>(value: T | T[] | null | undefined) {
+	return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
 
 export default function AutomationsPage() {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
+	const router = useRouter();
+	const [organizationId, setOrganizationId] = useState<string | null>(null);
 	const [reminders, setReminders] = useState<Reminder[]>([]);
 	const [logs, setLogs] = useState<ReminderLog[]>([]);
+	const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+	const [billing, setBilling] = useState<AutomationPayload['billing']>({
+		plan: 'starter',
+		status: 'not_configured',
+		isPro: false,
+	});
 	const [isLoading, setIsLoading] = useState(true);
 	const [isDialogOpen, setIsDialogOpen] = useState(false);
-	const [editingReminder, setEditingReminder] = useState<Reminder | null>(null);
+	const [form, setForm] = useState<FormState>(emptyForm);
 	const [isSaving, setIsSaving] = useState(false);
-	const [emailConfigured, setEmailConfigured] = useState(false);
-	const [automationTablesReady, setAutomationTablesReady] = useState(true);
-
-	const [formData, setFormData] = useState<ReminderInput>({
-		name: '',
-		trigger_type: 'days_before_expiry',
-		trigger_days: 30,
-		message_template: '',
-		is_active: true,
-	});
-	const [errors, setErrors] = useState<Record<string, string>>({});
+	const [deletingId, setDeletingId] = useState<string | null>(null);
 
 	useEffect(() => {
-		fetchData();
-		checkEmailConfig();
-	}, [orgSlug]);
+		const resolveOrganization = async () => {
+			const supabase = createClient();
+			const {
+				data: { user },
+			} = await supabase.auth.getUser();
 
-	const getCurrentOrganizationId = async () => {
-		const supabase = createClient();
-		const {
-			data: { user },
-		} = await supabase.auth.getUser();
+			if (!user) {
+				router.push('/auth/login');
+				return;
+			}
 
-		if (!user) return null;
+			const org = await getCurrentOrgBySlug(supabase, user.id, orgSlug);
+			setOrganizationId(org?.id ?? null);
+		};
 
-		const organization = await getCurrentOrgBySlug(supabase, user.id, orgSlug);
+		resolveOrganization();
+	}, [orgSlug, router]);
 
-		return organization?.id ?? null;
-	};
+	const loadAutomations = useCallback(async () => {
+		if (!organizationId) return;
 
-	const checkEmailConfig = async () => {
-		// Check if RESEND_API_KEY is configured
+		setIsLoading(true);
 		try {
-			const res = await fetch('/api/check-email-config');
-			const data = await res.json();
-			setEmailConfigured(data.configured);
-		} catch {
-			setEmailConfigured(false);
-		}
-	};
+			const response = await fetch(
+				`/api/automations?orgId=${encodeURIComponent(organizationId)}`,
+				{ cache: 'no-store', headers: { Accept: 'application/json' } },
+			);
+			const payload = await readJson<AutomationPayload>(response);
 
-	const fetchData = async () => {
-		const supabase = createClient();
-		const organizationId = await getCurrentOrganizationId();
+			if (!response.ok) {
+				if (response.status === 401) {
+					router.push('/auth/login');
+				}
+				throw new Error(payload.error || 'Automations could not be loaded.');
+			}
 
-		if (!organizationId) {
-			setReminders([]);
-			setLogs([]);
+			setReminders(payload.reminders ?? []);
+			setLogs(payload.logs ?? []);
+			setDocumentTypes(payload.documentTypes ?? []);
+			setBilling(
+				payload.billing ?? {
+					plan: 'starter',
+					status: 'not_configured',
+					isPro: false,
+				},
+			);
+			payload.warnings?.forEach((warning) => toast.warning(warning.message));
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Automations could not be loaded.',
+			);
+		} finally {
 			setIsLoading(false);
-			return;
 		}
+	}, [organizationId, router]);
 
-		const [remindersRes, logsRes] = await Promise.all([
-			supabase
-				.from('reminders')
-				.select('*')
-				.eq('organization_id', organizationId)
-				.order('created_at', { ascending: false }),
-			supabase
-				.from('reminder_logs')
-				.select(
-					'*, carers!inner(full_name, email, organization_id), documents(file_name, document_types(name))',
-				)
-				.eq('carers.organization_id', organizationId)
-				.order('sent_at', { ascending: false })
-				.limit(20),
-		]);
+	useEffect(() => {
+		loadAutomations();
+	}, [loadAutomations]);
 
-		// if (
-		// 	isMissingRelationError(remindersRes.error) ||
-		// 	isMissingRelationError(logsRes.error)
-		// ) {
-		// 	setAutomationTablesReady(false);
-		// 	setReminders([]);
-		// 	setLogs([]);
-		// 	setIsLoading(false);
-		// 	return;
-		// }
-
-		setAutomationTablesReady(true);
-		if (remindersRes.data) setReminders(remindersRes.data);
-		if (logsRes.data) setLogs(logsRes.data as ReminderLog[]);
-		setIsLoading(false);
-	};
+	const systemReminders = useMemo(
+		() => reminders.filter((reminder) => reminder.is_system),
+		[reminders],
+	);
+	const customReminders = useMemo(
+		() => reminders.filter((reminder) => !reminder.is_system),
+		[reminders],
+	);
 
 	const openCreateDialog = () => {
-		setEditingReminder(null);
-		setFormData({
-			name: '',
-			trigger_type: 'days_before_expiry',
-			trigger_days: 30,
-			message_template: getDefaultTemplate('days_before_expiry'),
-			is_active: true,
-		});
-		setErrors({});
+		if (!billing?.isPro) {
+			toast.info('Custom automations are available on Pro.');
+			return;
+		}
+		setForm(emptyForm);
 		setIsDialogOpen(true);
 	};
 
 	const openEditDialog = (reminder: Reminder) => {
-		setEditingReminder(reminder);
-		setFormData({
+		if (reminder.is_system) return;
+		setForm({
+			id: reminder.id,
 			name: reminder.name,
-			trigger_type: reminder.trigger_type,
-			trigger_days: reminder.trigger_days,
-			message_template: reminder.message_template || '',
-			is_active: reminder.is_active,
+			documentTypeId: reminder.document_type_id ?? ALL_DOCUMENT_TYPES,
+			triggerType: reminder.trigger_type,
+			triggerDays: String(reminder.trigger_days ?? 0),
+			recipientType: reminder.recipient_type,
+			subjectTemplate: reminder.subject_template ?? '',
+			messageTemplate: reminder.message_template ?? '',
+			isActive: reminder.is_active,
 		});
-		setErrors({});
 		setIsDialogOpen(true);
 	};
 
-	const getDefaultTemplate = (type: string) => {
-		switch (type) {
-			case 'days_before_expiry':
-				return `Hi {{carer_name}},
+	const saveReminder = async () => {
+		if (!organizationId) return;
 
-Your {{document_type}} is expiring on {{expiry_date}}. Please upload a renewed certificate to maintain your compliance status.
-
-Upload here: {{onboarding_link}}
-
-Best regards,
-{{organization_name}}`;
-			case 'days_after_upload':
-				return `Hi {{carer_name}},
-
-Thank you for uploading your {{document_type}}. We've received your document and it's now being reviewed.
-
-You can check your status here: {{onboarding_link}}
-
-Best regards,
-{{organization_name}}`;
-			default:
-				return '';
-		}
-	};
-
-	const handleSave = async () => {
-		const result = reminderSchema.safeParse(formData);
-
-		if (!result.success) {
-			const fieldErrors: Record<string, string> = {};
-			result.error.issues.forEach((err) => {
-				if (err.path[0]) {
-					fieldErrors[err.path[0] as string] = err.message;
-				}
-			});
-			setErrors(fieldErrors);
+		const triggerDays = Number(form.triggerDays);
+		if (!form.name.trim() || !Number.isInteger(triggerDays) || triggerDays < 0) {
+			toast.error('Please provide a name and valid trigger day.');
 			return;
 		}
 
 		setIsSaving(true);
-		const supabase = createClient();
-		const organizationId = await getCurrentOrganizationId();
+		try {
+			const response = await fetch('/api/automations', {
+				method: form.id ? 'PATCH' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					id: form.id,
+					orgId: organizationId,
+					name: form.name.trim(),
+					documentTypeId:
+						form.documentTypeId === ALL_DOCUMENT_TYPES
+							? null
+							: form.documentTypeId,
+					triggerType: form.triggerType,
+					triggerDays,
+					recipientType: form.recipientType,
+					subjectTemplate: form.subjectTemplate.trim(),
+					messageTemplate: form.messageTemplate.trim(),
+					isActive: form.isActive,
+				}),
+			});
+			const payload = await readJson<{ reminder?: Reminder; error?: string }>(
+				response,
+			);
 
-		if (!organizationId) {
-			toast.error('No organization found');
+			if (!response.ok || !payload.reminder) {
+				throw new Error(payload.error || 'Automation could not be saved.');
+			}
+
+			setIsDialogOpen(false);
+			toast.success(form.id ? 'Automation updated' : 'Automation created');
+			await loadAutomations();
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Automation could not be saved.',
+			);
+		} finally {
 			setIsSaving(false);
-			return;
-		}
-
-		const reminderData = {
-			name: formData.name,
-			trigger_type: formData.trigger_type,
-			trigger_days:
-				formData.trigger_type === 'manual' ? null : formData.trigger_days,
-			message_template: formData.message_template || null,
-			is_active: formData.is_active,
-			organization_id: organizationId,
-		};
-
-		if (editingReminder) {
-			const { error } = await supabase
-				.from('reminders')
-				.update(reminderData)
-				.eq('organization_id', organizationId)
-				.eq('id', editingReminder.id);
-
-			if (error) {
-				toast.error(
-					isMissingRelationError(error)
-						? 'Automations table is not set up yet'
-						: 'Failed to update automation',
-				);
-			} else {
-				// await logAction({
-				//   action: 'reminder.updated',
-				//   entityType: 'reminder',
-				//   entityId: editingReminder.id,
-				//   entityName: formData.name,
-				//   details: { trigger_type: formData.trigger_type, trigger_days: formData.trigger_days }
-				// })
-				toast.success('Automation updated');
-				setIsDialogOpen(false);
-				fetchData();
-			}
-		} else {
-			const { error } = await supabase
-				.from('reminders')
-				.insert(reminderData)
-				.select('id')
-				.single();
-
-			if (error) {
-				toast.error(
-					isMissingRelationError(error)
-						? 'Automations table is not set up yet'
-						: 'Failed to create automation',
-				);
-			} else {
-				// await logAction({
-				//   action: 'reminder.created',
-				//   entityType: 'reminder',
-				//   entityId: newReminder?.id,
-				//   entityName: formData.name,
-				//   details: { trigger_type: formData.trigger_type, trigger_days: formData.trigger_days }
-				// })
-				toast.success('Automation created');
-				setIsDialogOpen(false);
-				fetchData();
-			}
-		}
-
-		setIsSaving(false);
-	};
-
-	const toggleActive = async (reminder: Reminder) => {
-		const supabase = createClient();
-		const organizationId = await getCurrentOrganizationId();
-		if (!organizationId) return;
-
-		const { error } = await supabase
-			.from('reminders')
-			.update({ is_active: !reminder.is_active })
-			.eq('organization_id', organizationId)
-			.eq('id', reminder.id);
-
-		if (error) {
-			toast.error(
-				isMissingRelationError(error)
-					? 'Automations table is not set up yet'
-					: 'Failed to update',
-			);
-		} else {
-			// await logAction({
-			//   action: 'reminder.toggled',
-			//   entityType: 'reminder',
-			//   entityId: reminder.id,
-			//   entityName: reminder.name,
-			//   details: { is_active: !reminder.is_active }
-			// })
-			setReminders(
-				reminders.map((r) =>
-					r.id === reminder.id ? { ...r, is_active: !r.is_active } : r,
-				),
-			);
 		}
 	};
 
-	const deleteReminder = async (id: string) => {
-		const supabase = createClient();
-		const organizationId = await getCurrentOrganizationId();
-		if (!organizationId) return;
+	const deleteReminder = async (reminder: Reminder) => {
+		if (!organizationId || reminder.is_system) return;
 
-		const { error } = await supabase
-			.from('reminders')
-			.delete()
-			.eq('organization_id', organizationId)
-			.eq('id', id);
+		setDeletingId(reminder.id);
+		try {
+			const response = await fetch('/api/automations', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ orgId: organizationId, id: reminder.id }),
+			});
+			const payload = await readJson<{ error?: string }>(response);
 
-		if (error) {
-			toast.error(
-				isMissingRelationError(error)
-					? 'Automations table is not set up yet'
-					: 'Failed to delete',
-			);
-		} else {
-			// await logAction({
-			//   action: 'reminder.deleted',
-			//   entityType: 'reminder',
-			//   entityId: id,
-			//   entityName: reminder?.name,
-			// })
+			if (!response.ok) {
+				throw new Error(payload.error || 'Automation could not be deleted.');
+			}
+
 			toast.success('Automation deleted');
-			setReminders(reminders.filter((r) => r.id !== id));
+			await loadAutomations();
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Automation could not be deleted.',
+			);
+		} finally {
+			setDeletingId(null);
 		}
 	};
 
-	const getTriggerLabel = (type: string, days: number | null) => {
-		switch (type) {
-			case 'days_before_expiry':
-				return `${days} days before expiry`;
-			case 'days_after_upload':
-				return `${days} days after upload`;
-			case 'manual':
-				return 'Manual trigger';
-			default:
-				return type;
-		}
-	};
-
-	const getTriggerIcon = (type: string) => {
-		switch (type) {
-			case 'days_before_expiry':
-				return <Clock className='w-4 h-4' />;
-			case 'days_after_upload':
-				return <Mail className='w-4 h-4' />;
-			case 'manual':
-				return <Bell className='w-4 h-4' />;
-			default:
-				return <Zap className='w-4 h-4' />;
-		}
-	};
-
-	if (isLoading) {
+	if (isLoading || !organizationId) {
 		return (
-			<div className='p-8 flex items-center justify-center min-h-[400px]'>
-				<div className='animate-spin rounded-full h-8 w-8 border-b-2 border-foreground' />
+			<div className='flex min-h-[420px] items-center justify-center p-8'>
+				<Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
 			</div>
 		);
 	}
 
 	return (
-		<div className='p-8 max-w-6xl mx-auto'>
-			{/* Page header */}
-			<div className='flex items-center justify-between mb-8'>
+		<div className='mx-auto max-w-6xl space-y-6 p-8'>
+			<div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
 				<div>
 					<h1 className='text-2xl font-semibold tracking-tight'>Automations</h1>
-					<p className='text-muted-foreground mt-1'>
-						Configure automatic reminders for document expiry and compliance.
+					<p className='mt-1 text-muted-foreground'>
+						Manage document expiry reminders, escalation, and reminder activity.
 					</p>
 				</div>
-				<Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-					<DialogTrigger asChild>
-						<Button
-							onClick={openCreateDialog}
-							disabled={!automationTablesReady}>
-							<Plus className='w-4 h-4 mr-2' />
-							New Automation
-						</Button>
-					</DialogTrigger>
-					<DialogContent className='sm:max-w-lg'>
-						<DialogHeader>
-							<DialogTitle>
-								{editingReminder ? 'Edit Automation' : 'Create Automation'}
-							</DialogTitle>
-							<DialogDescription>
-								Set up automatic email reminders for your carers.
-							</DialogDescription>
-						</DialogHeader>
+				<Button type='button' onClick={openCreateDialog}>
+					<Plus className='mr-2 h-4 w-4' />
+					New automation
+				</Button>
+			</div>
 
-						<div className='space-y-5 py-4'>
-							<div className='space-y-2'>
-								<Label>Name</Label>
-								<Input
-									value={formData.name}
-									onChange={(e) =>
-										setFormData({ ...formData, name: e.target.value })
-									}
-									placeholder='e.g., 30 Day Expiry Warning'
-									className={errors.name ? 'border-destructive' : ''}
-								/>
-								{errors.name && (
-									<p className='text-xs text-destructive'>{errors.name}</p>
-								)}
+			{!billing?.isPro && (
+				<Card className='border-amber-200 bg-amber-50/50'>
+					<CardContent className='flex gap-3 py-4'>
+						<AlertCircle className='mt-0.5 h-5 w-5 shrink-0 text-amber-600' />
+						<div>
+							<p className='font-medium text-amber-900'>Starter reminders included</p>
+							<p className='mt-1 text-sm text-amber-800'>
+								Starter includes fixed expiry reminders. Upgrade to Pro for custom
+								document-type rules, scheduled sequences, and escalation workflows.
+							</p>
+						</div>
+					</CardContent>
+				</Card>
+			)}
+
+			<div className='grid gap-6 lg:grid-cols-[1fr_340px]'>
+				<div className='space-y-6'>
+					<ReminderSection
+						title='Included Starter Reminders'
+						description='Fixed system-managed rules available to every organization.'
+						reminders={systemReminders}
+						readOnly
+					/>
+					<ReminderSection
+						title='Custom Pro Automations'
+						description='Per-document-type reminders and escalation rules.'
+						reminders={customReminders}
+						onEdit={openEditDialog}
+						onDelete={deleteReminder}
+						deletingId={deletingId}
+						emptyAction={billing?.isPro ? openCreateDialog : undefined}
+					/>
+				</div>
+
+				<Card>
+					<CardHeader>
+						<CardTitle className='text-base'>Recent Emails</CardTitle>
+						<CardDescription>Latest reminder worker activity.</CardDescription>
+					</CardHeader>
+					<CardContent>
+						{logs.length === 0 ? (
+							<div className='py-8 text-center text-sm text-muted-foreground'>
+								<Send className='mx-auto mb-3 h-8 w-8 text-muted-foreground/50' />
+								No reminders sent yet
 							</div>
+						) : (
+							<div className='space-y-3'>
+								{logs.map((log) => (
+									<div key={log.id} className='border-b pb-3 last:border-0 last:pb-0'>
+										<div className='flex items-start justify-between gap-3'>
+											<div className='min-w-0'>
+												<p className='truncate text-sm font-medium'>
+													{log.recipient_email || log.carers?.email || 'No recipient'}
+												</p>
+												<p className='truncate text-xs text-muted-foreground'>
+													{getLogDocumentType(log)} &middot; {log.recipient_type}
+												</p>
+											</div>
+											<Badge variant={log.status === 'sent' ? 'default' : 'secondary'}>
+												{log.status}
+											</Badge>
+										</div>
+										<p className='mt-1 text-xs text-muted-foreground'>
+											{new Date(log.sent_at).toLocaleString('en-GB', {
+												day: 'numeric',
+												month: 'short',
+												hour: '2-digit',
+												minute: '2-digit',
+											})}
+										</p>
+										{log.error_message && (
+											<p className='mt-1 text-xs text-destructive'>{log.error_message}</p>
+										)}
+									</div>
+								))}
+							</div>
+						)}
+					</CardContent>
+				</Card>
+			</div>
 
+			<Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+				<DialogContent className='sm:max-w-xl'>
+					<DialogHeader>
+						<DialogTitle>
+							{form.id ? 'Edit automation' : 'Create automation'}
+						</DialogTitle>
+						<DialogDescription>
+							Custom automations are available on Pro.
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className='space-y-4 py-2'>
+						<div className='space-y-2'>
+							<Label>Name</Label>
+							<Input
+								value={form.name}
+								onChange={(event) =>
+									setForm((current) => ({ ...current, name: event.target.value }))
+								}
+								placeholder='DBS 14 day reminder'
+							/>
+						</div>
+
+						<div className='grid gap-4 sm:grid-cols-2'>
 							<div className='space-y-2'>
-								<Label>Trigger</Label>
+								<Label>Document type</Label>
 								<Select
-									value={formData.trigger_type}
-									onValueChange={(value: ReminderInput['trigger_type']) => {
-										setFormData({
-											...formData,
-											trigger_type: value,
-											message_template: getDefaultTemplate(value),
-										});
-									}}>
+									value={form.documentTypeId}
+									onValueChange={(value) =>
+										setForm((current) => ({ ...current, documentTypeId: value }))
+									}>
 									<SelectTrigger>
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value='days_before_expiry'>
-											Days before document expires
-										</SelectItem>
-										<SelectItem value='days_after_upload'>
-											Days after document upload
-										</SelectItem>
-										<SelectItem value='manual'>Manual trigger only</SelectItem>
+										<SelectItem value={ALL_DOCUMENT_TYPES}>All document types</SelectItem>
+										{documentTypes.map((documentType) => (
+											<SelectItem key={documentType.id} value={documentType.id}>
+												{documentType.name}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							</div>
 
-							{formData.trigger_type !== 'manual' && (
-								<div className='space-y-2'>
-									<Label>Days</Label>
-									<Input
-										type='number'
-										min={1}
-										max={365}
-										value={formData.trigger_days || ''}
-										onChange={(e) =>
-											setFormData({
-												...formData,
-												trigger_days: parseInt(e.target.value) || null,
-											})
-										}
-										className={errors.trigger_days ? 'border-destructive' : ''}
-									/>
-									{errors.trigger_days && (
-										<p className='text-xs text-destructive'>
-											{errors.trigger_days}
-										</p>
-									)}
-								</div>
-							)}
-
 							<div className='space-y-2'>
-								<Label>Email Template</Label>
-								<Textarea
-									value={formData.message_template}
-									onChange={(e) =>
-										setFormData({
-											...formData,
-											message_template: e.target.value,
-										})
+								<Label>Recipient</Label>
+								<Select
+									value={form.recipientType}
+									onValueChange={(value: FormState['recipientType']) =>
+										setForm((current) => ({ ...current, recipientType: value }))
+									}>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='carer'>Carer</SelectItem>
+										<SelectItem value='management'>Admins and managers</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						</div>
+
+						<div className='grid gap-4 sm:grid-cols-2'>
+							<div className='space-y-2'>
+								<Label>Trigger</Label>
+								<Select
+									value={form.triggerType}
+									onValueChange={(value: FormState['triggerType']) =>
+										setForm((current) => ({ ...current, triggerType: value }))
+									}>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='days_before_expiry'>Days before expiry</SelectItem>
+										<SelectItem value='days_after_expiry'>Days after expiry</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className='space-y-2'>
+								<Label>Days</Label>
+								<Input
+									type='number'
+									min='0'
+									max='365'
+									value={form.triggerDays}
+									onChange={(event) =>
+										setForm((current) => ({
+											...current,
+											triggerDays: event.target.value,
+										}))
 									}
-									placeholder='Email message template...'
-									rows={6}
-									className='font-mono text-sm'
 								/>
+							</div>
+						</div>
+
+						<div className='space-y-2'>
+							<Label>Subject</Label>
+							<Input
+								value={form.subjectTemplate}
+								onChange={(event) =>
+									setForm((current) => ({
+										...current,
+										subjectTemplate: event.target.value,
+									}))
+								}
+							/>
+						</div>
+						<div className='space-y-2'>
+							<Label>Email message</Label>
+							<Textarea
+								value={form.messageTemplate}
+								onChange={(event) =>
+									setForm((current) => ({
+										...current,
+										messageTemplate: event.target.value,
+									}))
+								}
+								rows={6}
+								className='font-mono text-sm'
+							/>
+							<p className='text-xs text-muted-foreground'>
+								Variables: {'{{carer_name}}'}, {'{{document_type}}'},{' '}
+								{'{{expiry_date}}'}, {'{{onboarding_link}}'},{' '}
+								{'{{organization_name}}'}
+							</p>
+						</div>
+						<div className='flex items-center justify-between rounded-md border p-3'>
+							<div>
+								<p className='text-sm font-medium'>Active</p>
 								<p className='text-xs text-muted-foreground'>
-									Available variables: {'{{carer_name}}'}, {'{{document_type}}'}
-									, {'{{expiry_date}}'}, {'{{onboarding_link}}'},{' '}
-									{'{{organization_name}}'}
+									Paused automations will not enqueue reminder jobs.
 								</p>
 							</div>
-
-							<div className='flex items-center justify-between rounded-lg border p-4'>
-								<div className='space-y-0.5'>
-									<Label>Active</Label>
-									<p className='text-sm text-muted-foreground'>
-										Enable this automation
-									</p>
-								</div>
-								<Switch
-									checked={formData.is_active}
-									onCheckedChange={(checked) =>
-										setFormData({ ...formData, is_active: checked })
-									}
-								/>
-							</div>
+							<Switch
+								checked={form.isActive}
+								onCheckedChange={(checked) =>
+									setForm((current) => ({ ...current, isActive: checked }))
+								}
+							/>
 						</div>
+					</div>
 
-						<DialogFooter>
-							<Button variant='outline' onClick={() => setIsDialogOpen(false)}>
-								Cancel
-							</Button>
-							<Button onClick={handleSave} disabled={isSaving}>
-								{isSaving ? 'Saving...' : editingReminder ? 'Update' : 'Create'}
-							</Button>
-						</DialogFooter>
-					</DialogContent>
-				</Dialog>
-			</div>
-
-			{/* Email configuration warning */}
-			{!emailConfigured && (
-				<Card className='mb-6 border-amber-200 bg-amber-50/50'>
-					<CardContent className='py-4'>
-						<div className='flex gap-3'>
-							<AlertCircle className='w-5 h-5 text-amber-600 shrink-0 mt-0.5' />
-							<div>
-								<p className='font-medium text-amber-800'>
-									Email sending not configured
-								</p>
-								<p className='text-sm text-amber-700 mt-1'>
-									To send automated reminder emails, add your{' '}
-									<code className='bg-amber-100 px-1 rounded'>
-										RESEND_API_KEY
-									</code>{' '}
-									environment variable. Get your API key from{' '}
-									<a
-										href='https://resend.com'
-										target='_blank'
-										rel='noopener noreferrer'
-										className='underline'>
-										resend.com
-									</a>
-									.
-								</p>
-							</div>
-						</div>
-					</CardContent>
-				</Card>
-			)}
-
-			{!automationTablesReady && (
-				<Card className='mb-6 border-amber-200 bg-amber-50/50'>
-					<CardContent className='py-4'>
-						<div className='flex gap-3'>
-							<AlertCircle className='w-5 h-5 text-amber-600 shrink-0 mt-0.5' />
-							<div>
-								<p className='font-medium text-amber-800'>
-									Automations are not set up yet
-								</p>
-								<p className='text-sm text-amber-700 mt-1'>
-									The reminders tables have not been added to the database yet.
-									This page will start working once those migrations exist.
-								</p>
-							</div>
-						</div>
-					</CardContent>
-				</Card>
-			)}
-
-			<div className='grid gap-6 lg:grid-cols-3'>
-				{/* Automations list */}
-				<div className='lg:col-span-2 space-y-4'>
-					<h2 className='text-sm font-medium text-muted-foreground uppercase tracking-wider'>
-						Reminder Rules
-					</h2>
-
-					{reminders.length === 0 ? (
-						<Card>
-							<CardContent className='py-12 text-center'>
-								<Zap className='w-10 h-10 mx-auto text-muted-foreground/50 mb-4' />
-								<h3 className='font-medium mb-1'>No automations yet</h3>
-								<p className='text-sm text-muted-foreground mb-4'>
-									Create your first automation to send automatic reminders.
-								</p>
-								<Button
-									onClick={openCreateDialog}
-									disabled={!automationTablesReady}>
-									<Plus className='w-4 h-4 mr-2' />
-									Create Automation
-								</Button>
-							</CardContent>
-						</Card>
-					) : (
-						<div className='space-y-3'>
-							{reminders.map((reminder) => (
-								<Card
-									key={reminder.id}
-									className={!reminder.is_active ? 'opacity-60' : ''}>
-									<CardContent className='py-4'>
-										<div className='flex items-start justify-between gap-4'>
-											<div className='flex items-start gap-3 min-w-0'>
-												<div
-													className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-														reminder.is_active
-															? 'bg-primary/10 text-primary'
-															: 'bg-muted text-muted-foreground'
-													}`}>
-													{getTriggerIcon(reminder.trigger_type)}
-												</div>
-												<div className='min-w-0'>
-													<div className='flex items-center gap-2'>
-														<h3 className='font-medium truncate'>
-															{reminder.name}
-														</h3>
-														{reminder.is_active ? (
-															<span className='text-xs px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-medium'>
-																Active
-															</span>
-														) : (
-															<span className='text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium'>
-																Paused
-															</span>
-														)}
-													</div>
-													<p className='text-sm text-muted-foreground mt-0.5'>
-														{getTriggerLabel(
-															reminder.trigger_type,
-															reminder.trigger_days,
-														)}
-													</p>
-												</div>
-											</div>
-
-											<div className='flex items-center gap-2 shrink-0'>
-												<Switch
-													checked={reminder.is_active}
-													onCheckedChange={() => toggleActive(reminder)}
-												/>
-												<DropdownMenu>
-													<DropdownMenuTrigger asChild>
-														<Button
-															variant='ghost'
-															size='icon'
-															className='h-8 w-8'>
-															<MoreHorizontal className='w-4 h-4' />
-														</Button>
-													</DropdownMenuTrigger>
-													<DropdownMenuContent align='end'>
-														<DropdownMenuItem
-															onClick={() => openEditDialog(reminder)}>
-															<Pencil className='w-4 h-4 mr-2' />
-															Edit
-														</DropdownMenuItem>
-														<DropdownMenuItem
-															onClick={() => deleteReminder(reminder.id)}
-															className='text-destructive'>
-															<Trash2 className='w-4 h-4 mr-2' />
-															Delete
-														</DropdownMenuItem>
-													</DropdownMenuContent>
-												</DropdownMenu>
-											</div>
-										</div>
-									</CardContent>
-								</Card>
-							))}
-						</div>
-					)}
-				</div>
-
-				{/* Recent activity */}
-				<div className='space-y-4'>
-					<h2 className='text-sm font-medium text-muted-foreground uppercase tracking-wider'>
-						Recent Emails
-					</h2>
-
-					<Card>
-						<CardContent className='py-4'>
-							{logs.length === 0 ? (
-								<div className='text-center py-8'>
-									<Send className='w-8 h-8 mx-auto text-muted-foreground/50 mb-3' />
-									<p className='text-sm text-muted-foreground'>
-										No emails sent yet
-									</p>
-								</div>
-							) : (
-								<div className='space-y-3'>
-									{logs.map((log) => (
-										<div
-											key={log.id}
-											className='flex items-start gap-3 pb-3 border-b last:border-0 last:pb-0'>
-											<div
-												className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-													log.status === 'sent' || log.status === 'delivered'
-														? 'bg-green-100 text-green-600'
-														: 'bg-red-100 text-red-600'
-												}`}>
-												{log.status === 'sent' || log.status === 'delivered' ? (
-													<CheckCircle2 className='w-4 h-4' />
-												) : (
-													<AlertCircle className='w-4 h-4' />
-												)}
-											</div>
-											<div className='min-w-0 flex-1'>
-												<p className='text-sm font-medium truncate'>
-													{log.carers?.full_name}
-												</p>
-												<p className='text-xs text-muted-foreground truncate'>
-													{log.documents?.document_types?.name ||
-														'General reminder'}
-												</p>
-												<p className='text-xs text-muted-foreground mt-1'>
-													{new Date(log.sent_at).toLocaleDateString('en-GB', {
-														day: 'numeric',
-														month: 'short',
-														hour: '2-digit',
-														minute: '2-digit',
-													})}
-												</p>
-											</div>
-										</div>
-									))}
-								</div>
-							)}
-						</CardContent>
-					</Card>
-				</div>
-			</div>
+					<DialogFooter>
+						<Button variant='outline' onClick={() => setIsDialogOpen(false)}>
+							Cancel
+						</Button>
+						<Button onClick={saveReminder} disabled={isSaving}>
+							{isSaving && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+							{form.id ? 'Save changes' : 'Create automation'}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
+}
+
+function ReminderSection({
+	title,
+	description,
+	reminders,
+	readOnly = false,
+	onEdit,
+	onDelete,
+	deletingId,
+	emptyAction,
+}: {
+	title: string;
+	description: string;
+	reminders: Reminder[];
+	readOnly?: boolean;
+	onEdit?: (reminder: Reminder) => void;
+	onDelete?: (reminder: Reminder) => void;
+	deletingId?: string | null;
+	emptyAction?: () => void;
+}) {
+	return (
+		<Card>
+			<CardHeader>
+				<CardTitle className='text-base'>{title}</CardTitle>
+				<CardDescription>{description}</CardDescription>
+			</CardHeader>
+			<CardContent>
+				{reminders.length === 0 ? (
+					<div className='rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground'>
+						<Zap className='mx-auto mb-3 h-8 w-8 text-muted-foreground/50' />
+						No automations configured.
+						{emptyAction && (
+							<div className='mt-4'>
+								<Button type='button' onClick={emptyAction}>
+									<Plus className='mr-2 h-4 w-4' />
+									Create automation
+								</Button>
+							</div>
+						)}
+					</div>
+				) : (
+					<div className='space-y-3'>
+						{reminders.map((reminder) => (
+							<div
+								key={reminder.id}
+								className='flex flex-col gap-4 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between'>
+								<div className='min-w-0'>
+									<div className='flex flex-wrap items-center gap-2'>
+										{getTriggerIcon(reminder)}
+										<p className='font-medium'>{reminder.name}</p>
+										<Badge variant={reminder.is_active ? 'default' : 'secondary'}>
+											{reminder.is_active ? 'Active' : 'Paused'}
+										</Badge>
+										{reminder.is_system && <Badge variant='outline'>Included</Badge>}
+										{reminder.min_plan === 'pro' && <Badge variant='outline'>Pro</Badge>}
+									</div>
+									<p className='mt-1 text-sm text-muted-foreground'>
+										{getTriggerLabel(reminder)}
+										<span aria-hidden='true'> &middot; </span>
+										{getRecipientLabel(reminder)}
+										<span aria-hidden='true'> &middot; </span>
+										{getDocumentTypeName(reminder) ?? 'All document types'}
+									</p>
+								</div>
+								{!readOnly && (
+									<div className='flex gap-2'>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => onEdit?.(reminder)}>
+											<Pencil className='mr-2 h-4 w-4' />
+											Edit
+										</Button>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											disabled={deletingId === reminder.id}
+											onClick={() => onDelete?.(reminder)}>
+											{deletingId === reminder.id ? (
+												<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+											) : (
+												<Trash2 className='mr-2 h-4 w-4' />
+											)}
+											Delete
+										</Button>
+									</div>
+								)}
+							</div>
+						))}
+					</div>
+				)}
+			</CardContent>
+		</Card>
+	);
+}
+
+function getTriggerIcon(reminder: Reminder) {
+	if (reminder.recipient_type === 'management') {
+		return <Bell className='h-4 w-4 text-muted-foreground' />;
+	}
+	if (reminder.trigger_type === 'days_after_expiry') {
+		return <Mail className='h-4 w-4 text-muted-foreground' />;
+	}
+	return <Clock className='h-4 w-4 text-muted-foreground' />;
+}
+
+function getTriggerLabel(reminder: Reminder) {
+	const days = reminder.trigger_days ?? 0;
+	if (reminder.trigger_type === 'days_after_expiry') {
+		return days === 1 ? '1 day after expiry' : `${days} days after expiry`;
+	}
+	if (days === 0) return 'On expiry day';
+	return days === 1 ? '1 day before expiry' : `${days} days before expiry`;
+}
+
+function getRecipientLabel(reminder: Reminder) {
+	return reminder.recipient_type === 'management'
+		? 'Admins and managers'
+		: 'Carer';
+}
+
+function getDocumentTypeName(reminder: Reminder) {
+	return normalizeRelation(reminder.document_types)?.name ?? null;
+}
+
+function getLogDocumentType(log: ReminderLog) {
+	return normalizeRelation(log.documents?.document_types)?.name ?? 'General reminder';
 }

@@ -111,9 +111,9 @@ export function CarerReferenceActions({
 			}
 
 			if (payload.ok === false) {
-				toast.warning(payload.error ?? 'Reference request was not sent to n8n');
+				toast.warning(payload.error ?? 'Reference request could not be queued');
 			} else {
-				toast.success('Reference request sent');
+				toast.success('Reference request queued');
 			}
 
 			router.refresh();
@@ -250,7 +250,7 @@ export function CarerReferenceActions({
 									target='_blank'
 									rel='noopener noreferrer'>
 									<ExternalLink className='mr-2 h-4 w-4' />
-									Open Tally submission
+									Open submission
 								</a>
 							</Button>
 						)}

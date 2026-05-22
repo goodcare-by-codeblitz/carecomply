@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { PersonDetailsForm } from '@/components/carer-profile-card';
 import {
 	Card,
 	CardContent,
@@ -20,6 +21,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { onboardingDocumentSchema } from '@/lib/validations';
+import type { PersonDetailsInput } from '@/lib/person-profile';
 import {
 	AlertCircle,
 	CheckCircle2,
@@ -39,6 +41,15 @@ type Carer = {
 	full_name: string;
 	email: string;
 	phone: string | null;
+	address_line1: string | null;
+	address_line2: string | null;
+	city: string | null;
+	county: string | null;
+	postcode: string | null;
+	emergency_contact_name: string | null;
+	emergency_contact_relationship: string | null;
+	emergency_contact_phone: string | null;
+	emergency_contact_email: string | null;
 	onboarding_progress: number | null;
 };
 
@@ -136,6 +147,18 @@ export function OnboardingClient() {
 	const { token } = useParams<{ token: string }>();
 	const [carer, setCarer] = useState<Carer | null>(null);
 	const [carerPhone, setCarerPhone] = useState('');
+	const [profileForm, setProfileForm] = useState<PersonDetailsInput>({
+		phone: '',
+		addressLine1: '',
+		addressLine2: '',
+		city: '',
+		county: '',
+		postcode: '',
+		emergencyContactName: '',
+		emergencyContactRelationship: '',
+		emergencyContactPhone: '',
+		emergencyContactEmail: '',
+	});
 	const [organization, setOrganization] = useState<Organization>(null);
 	const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
 	const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
@@ -151,6 +174,7 @@ export function OnboardingClient() {
 	const [isUploading, setIsUploading] = useState(false);
 	const [isSavingWorkRefs, setIsSavingWorkRefs] = useState(false);
 	const [isSavingCharRefs, setIsSavingCharRefs] = useState(false);
+	const [isSavingProfile, setIsSavingProfile] = useState(false);
 	const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -179,6 +203,19 @@ export function OnboardingClient() {
 
 			setCarer(data.carer);
 			setCarerPhone(data.carer.phone ?? '');
+			setProfileForm({
+				phone: data.carer.phone ?? '',
+				addressLine1: data.carer.address_line1 ?? '',
+				addressLine2: data.carer.address_line2 ?? '',
+				city: data.carer.city ?? '',
+				county: data.carer.county ?? '',
+				postcode: data.carer.postcode ?? '',
+				emergencyContactName: data.carer.emergency_contact_name ?? '',
+				emergencyContactRelationship:
+					data.carer.emergency_contact_relationship ?? '',
+				emergencyContactPhone: data.carer.emergency_contact_phone ?? '',
+				emergencyContactEmail: data.carer.emergency_contact_email ?? '',
+			});
 			setOrganization(data.organization);
 			setDocumentTypes(data.documentTypes);
 			setUploadedDocs(data.documents);
@@ -406,6 +443,38 @@ export function OnboardingClient() {
 		}
 	};
 
+	const updateProfileField = (field: keyof PersonDetailsInput, value: string) => {
+		setProfileForm((current) => ({ ...current, [field]: value }));
+		if (field === 'phone') setCarerPhone(value);
+	};
+
+	const saveProfile = async () => {
+		setIsSavingProfile(true);
+		try {
+			const response = await fetch('/api/onboarding/profile', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ token, ...profileForm }),
+			});
+			const payload = (await response.json()) as {
+				carer?: Partial<Carer>;
+				error?: string;
+			};
+			if (!response.ok || !payload.carer) {
+				throw new Error(payload.error || 'Profile details could not be saved.');
+			}
+			setCarer((current) => (current ? { ...current, ...payload.carer } : current));
+			setCarerPhone(payload.carer.phone ?? '');
+			toast.success('Profile details saved');
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Profile details could not be saved.',
+			);
+		} finally {
+			setIsSavingProfile(false);
+		}
+	};
+
 	if (loading) {
 		return (
 			<div className='min-h-screen bg-background flex items-center justify-center'>
@@ -471,13 +540,14 @@ export function OnboardingClient() {
 								<p className='font-medium'>{carer?.email}</p>
 							</div>
 							<div className='space-y-2'>
-								<Label htmlFor='carer-phone'>Phone</Label>
-								<Input
-									id='carer-phone'
-									type='tel'
-									value={carerPhone}
-									onChange={(event) => setCarerPhone(event.target.value)}
-								/>
+								<PersonDetailsForm form={profileForm} onChange={updateProfileField} />
+								<Button
+									type='button'
+									className='w-full'
+									disabled={isSavingProfile}
+									onClick={saveProfile}>
+									{isSavingProfile ? 'Saving...' : 'Save details'}
+								</Button>
 							</div>
 						</CardContent>
 					</Card>

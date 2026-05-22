@@ -13,7 +13,11 @@ export type UserOrganizationsResult =
 	| { ok: false; error: unknown };
 
 type OrganizationAccessRow = UserOrganization & {
-	organization_memberships?: { user_id: string; deleted_at: string | null }[];
+	organization_memberships?: {
+		user_id: string;
+		deleted_at: string | null;
+		status?: string | null;
+	}[];
 };
 
 type MembershipRow = {
@@ -27,6 +31,7 @@ type QueryResult<T> = {
 
 type QueryBuilder<T> = PromiseLike<QueryResult<T>> & {
 	eq: (column: string, value: string) => QueryBuilder<T>;
+	in: (column: string, value: string[]) => QueryBuilder<T>;
 	is: (column: string, value: null) => QueryBuilder<T>;
 	maybeSingle: () => PromiseLike<QueryResult<T>>;
 };
@@ -66,7 +71,8 @@ export async function getUserOrganizationsResult(
 		.from('organization_memberships')
 		.select('organizations(*)')
 		.eq('user_id', userId)
-		.is('deleted_at', null);
+		.is('deleted_at', null)
+		.in('status', ['active', 'on_leave']);
 
 	if (error) {
 		if (isMissingColumnOrSchemaCacheError(error)) {
@@ -146,10 +152,11 @@ export async function getCurrentOrgBySlug(
 	const client = supabase as OrganizationSupabaseLike;
 	const { data, error } = await client
 		.from('organizations')
-		.select('*, organization_memberships!inner(user_id, deleted_at)')
+		.select('*, organization_memberships!inner(user_id, deleted_at, status)')
 		.eq('slug', orgSlug)
 		.eq('organization_memberships.user_id', userId)
 		.is('organization_memberships.deleted_at', null)
+		.in('organization_memberships.status', ['active', 'on_leave'])
 		.maybeSingle();
 
 	if (error) {
@@ -267,6 +274,7 @@ export function isMissingColumnOrSchemaCacheError(error: unknown) {
 		maybeError.code === '42703' ||
 		maybeError.code === 'PGRST204' ||
 		text.includes('deleted_at') ||
+		text.includes('status') ||
 		text.includes('schema cache') ||
 		text.includes('could not find')
 	);

@@ -1,5 +1,7 @@
 import {
 	getPlanFromStripePriceId,
+	isKnownBillingPlan,
+	normalizeBillingPlan,
 	type BillingInterval,
 	type BillingPlan,
 	type BillingStatus,
@@ -229,9 +231,9 @@ async function handleSubscriptionEvent(
 
 	if (!organizationId) return;
 
-	const plan = getBillingPlan(subscription.metadata?.plan) ?? planFromPrice?.plan;
+	const plan = planFromPrice?.plan ?? getBillingPlan(subscription.metadata?.plan);
 	const interval =
-		getBillingInterval(subscription.metadata?.interval) ?? planFromPrice?.interval;
+		planFromPrice?.interval ?? getBillingInterval(subscription.metadata?.interval);
 
 	await upsertOrganizationBilling(supabase, organizationId, {
 		...(plan ? { plan } : {}),
@@ -333,7 +335,7 @@ async function upsertOrganizationBilling(
 	const { error } = await supabase.from('organization_billing').upsert(
 		{
 			organization_id: organizationId,
-			plan: values.plan ?? 'carecore',
+			plan: values.plan ?? 'starter',
 			interval: values.interval ?? 'monthly',
 			status: values.status ?? 'trialing',
 			...values,
@@ -393,16 +395,7 @@ function getStripeId(value: string | { id: string } | null | undefined) {
 }
 
 function getBillingPlan(value: string | null | undefined): BillingPlan | null {
-	if (
-		value === 'carecore' ||
-		value === 'safetrack' ||
-		value === 'complipro' ||
-		value === 'guardian_plus'
-	) {
-		return value;
-	}
-
-	return null;
+	return isKnownBillingPlan(value) ? normalizeBillingPlan(value) : null;
 }
 
 function getBillingInterval(

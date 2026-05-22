@@ -49,14 +49,48 @@ create table if not exists public.role_permissions (
   constraint role_permissions_unique unique (role_id, permission_id)
 );
 
+create unique index if not exists roles_unique_platform_name
+on public.roles (name)
+where organization_id is null
+  and scope = 'PLATFORM';
+
+create table if not exists public.platform_memberships (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role_id uuid not null references public.roles(id) on delete restrict,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz,
+  constraint platform_memberships_unique_user unique (user_id)
+);
+
 create table if not exists public.organization_memberships (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
   organization_id uuid references public.organizations(id) on delete cascade,
   role_id uuid references public.roles(id) on delete set null,
+  phone text,
+  job_title text,
+  department text,
+  address_line1 text,
+  address_line2 text,
+  city text,
+  county text,
+  postcode text,
+  emergency_contact_name text,
+  emergency_contact_relationship text,
+  emergency_contact_phone text,
+  emergency_contact_email text,
+  status text not null default 'active',
+  previous_status text,
+  status_changed_at timestamptz,
+  status_changed_by uuid references auth.users(id) on delete set null,
+  former_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz,
   deleted_at timestamptz,
+  constraint organization_memberships_status_check check (
+    status in ('active', 'on_leave', 'suspended', 'former')
+  ),
   constraint org_membership_unique unique (user_id, organization_id)
 );
 
@@ -66,12 +100,22 @@ create table if not exists public.carers (
   full_name text not null,
   email text not null,
   phone text,
+  address_line1 text,
+  address_line2 text,
+  city text,
+  county text,
+  postcode text,
+  emergency_contact_name text,
+  emergency_contact_relationship text,
+  emergency_contact_phone text,
+  emergency_contact_email text,
   status text default 'pending' check (
-    status in ('pending', 'active', 'expired', 'incomplete', 'on_leave', 'former')
+    status in ('pending', 'active', 'expired', 'incomplete', 'on_leave', 'suspended', 'former')
   ),
   onboarding_progress integer default 0,
   status_changed_at timestamptz,
   status_changed_by uuid references auth.users(id) on delete set null,
+  previous_status text,
   former_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -122,7 +166,10 @@ create table if not exists public.carer_references (
   status text not null default 'pending' check (
     status in ('pending', 'requested', 'responded', 'approved', 'rejected')
   ),
+  reference_token text unique,
+  token_expires_at timestamptz,
   request_sent_at timestamptz,
+  request_attempted_at timestamptz,
   request_error text,
   response_received_at timestamptz,
   response_payload jsonb,
@@ -130,13 +177,15 @@ create table if not exists public.carer_references (
   reviewed_at timestamptz,
   reviewed_by uuid references public.profiles(id),
   review_notes text,
+  last_chased_at timestamptz,
+  chase_count integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz
 );
 
 create table if not exists public.organization_billing (
   organization_id uuid primary key references public.organizations(id) on delete cascade,
-  plan text not null default 'carecore',
+  plan text not null default 'starter',
   interval text not null default 'monthly',
   status text not null default 'trialing',
   stripe_customer_id text unique,
@@ -150,7 +199,7 @@ create table if not exists public.organization_billing (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint organization_billing_plan_check check (
-    plan in ('carecore', 'safetrack', 'complipro', 'guardian_plus')
+    plan in ('starter', 'pro')
   ),
   constraint organization_billing_interval_check check (
     interval in ('monthly', 'yearly')
@@ -182,26 +231,101 @@ create table if not exists public.organization_invitations (
 create table if not exists public.reminders (
   id uuid primary key default gen_random_uuid(),
   organization_id uuid not null references public.organizations(id) on delete cascade,
+  document_type_id uuid references public.document_types(id) on delete cascade,
   name text not null,
-  trigger_type text not null check (trigger_type in ('days_before_expiry', 'days_after_upload', 'manual')),
+  trigger_type text not null check (trigger_type in ('days_before_expiry', 'days_after_expiry', 'days_after_upload', 'manual')),
   trigger_days integer,
+  recipient_type text not null default 'carer' check (recipient_type in ('carer', 'management')),
+  min_plan text not null default 'starter' check (min_plan in ('starter', 'pro')),
   message_template text,
+  subject_template text,
+  is_system boolean not null default false,
   is_active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz
 
 );
 
-create table if not exists public.reminder_logs (
+create unique index if not exists reminders_system_unique
+on public.reminders (
+  organization_id,
+  name
+)
+where is_system = true;
+
+create table if not exists public.reminder_jobs (
   id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
   reminder_id uuid references public.reminders(id) on delete set null,
   carer_id uuid not null references public.carers(id) on delete cascade,
   document_id uuid references public.documents(id) on delete set null,
+  recipient_type text not null check (recipient_type in ('carer', 'management')),
+  recipient_email text,
+  recipient_name text,
+  due_on date not null,
+  idempotency_key text not null unique,
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'queued' check (status in ('queued', 'processing', 'sent', 'failed', 'skipped')),
+  attempts integer not null default 0,
+  max_attempts integer not null default 5,
+  locked_at timestamptz,
+  locked_by text,
+  next_attempt_at timestamptz not null default now(),
+  last_error text,
+  processed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.reminder_logs (
+  id uuid primary key default gen_random_uuid(),
+  reminder_id uuid references public.reminders(id) on delete set null,
+  reminder_job_id uuid references public.reminder_jobs(id) on delete set null,
+  carer_id uuid not null references public.carers(id) on delete cascade,
+  document_id uuid references public.documents(id) on delete set null,
   channel text not null default 'email',
+  recipient_type text not null default 'carer',
+  recipient_email text,
   status text not null,
   sent_at timestamptz not null default now(),
   error_message text,
   provider_message_id text
+);
+
+create table if not exists public.reference_jobs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  reference_id uuid not null references public.carer_references(id) on delete cascade,
+  carer_id uuid not null references public.carers(id) on delete cascade,
+  job_type text not null check (job_type in ('initial_request', 'chase', 'manager_notification')),
+  status text not null default 'queued' check (status in ('queued', 'processing', 'sent', 'failed', 'skipped')),
+  due_at timestamptz not null default now(),
+  idempotency_key text not null unique,
+  payload jsonb not null default '{}'::jsonb,
+  attempts integer not null default 0,
+  max_attempts integer not null default 5,
+  locked_at timestamptz,
+  locked_by text,
+  last_error text,
+  processed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.reference_logs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  reference_id uuid references public.carer_references(id) on delete set null,
+  reference_job_id uuid references public.reference_jobs(id) on delete set null,
+  carer_id uuid references public.carers(id) on delete set null,
+  channel text not null default 'email',
+  recipient_type text not null check (recipient_type in ('referee', 'manager')),
+  recipient_email text,
+  status text not null,
+  event_type text not null,
+  error_message text,
+  provider_message_id text,
+  sent_at timestamptz not null default now()
 );
 
 create table if not exists public.stripe_events (
@@ -233,6 +357,24 @@ create table if not exists public.audit_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.audit_exports (
+  id uuid primary key,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  user_email text,
+  format text not null check (format in ('csv', 'xlsx')),
+  filters jsonb not null default '{}'::jsonb,
+  row_count integer not null default 0,
+  generated_at timestamptz not null,
+  rows_hash text not null,
+  file_hash text not null,
+  manifest_hash text not null,
+  signature text not null,
+  verification_count integer not null default 0,
+  last_verified_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists public.auth_audit_events (
   id uuid primary key default gen_random_uuid(),
   email text,
@@ -244,4 +386,12 @@ create table if not exists public.auth_audit_events (
   ip_address text,
   user_agent text,
   created_at timestamptz not null default now()
+);
+
+create table if not exists public.platform_settings (
+  key text primary key,
+  value text not null,
+  updated_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
 );

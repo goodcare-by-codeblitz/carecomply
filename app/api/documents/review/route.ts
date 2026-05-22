@@ -1,4 +1,8 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import {
+	canReceiveOperationalCommunication,
+	carerCommunicationBlockedMessage,
+} from '@/lib/carer-communications';
 import { updateCarerOnboardingProgress } from '@/lib/onboarding';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -32,6 +36,7 @@ type DocumentForReview = {
 				id: string;
 				full_name: string;
 				email: string;
+				status: string | null;
 				organization_id: string;
 				organizations: { name: string } | { name: string }[] | null;
 		  }
@@ -39,6 +44,7 @@ type DocumentForReview = {
 				id: string;
 				full_name: string;
 				email: string;
+				status: string | null;
 				organization_id: string;
 				organizations: { name: string } | { name: string }[] | null;
 		  }[]
@@ -83,7 +89,7 @@ export async function POST(request: Request) {
 	const { data: documentData, error: documentError } = await admin
 		.from('documents')
 		.select(
-			'id, file_name, file_path, status, expiry_date, reviewed_at, reviewed_by, rejection_reason, review_notes, carer_id, document_type_id, carers!inner(id, full_name, email, organization_id, organizations(name)), document_type:document_types!documents_document_type_id_fkey(name)',
+			'id, file_name, file_path, status, expiry_date, reviewed_at, reviewed_by, rejection_reason, review_notes, carer_id, document_type_id, carers!inner(id, full_name, email, status, organization_id, organizations(name)), document_type:document_types!documents_document_type_id_fkey(name)',
 		)
 		.eq('id', result.data.documentId)
 		.maybeSingle();
@@ -198,7 +204,7 @@ export async function POST(request: Request) {
 				outcome:
 					result.data.action === 'approve'
 						? 'document_approved'
-						: 'document_rejected_and_carer_notified',
+						: 'document_rejected',
 			},
 			request,
 		});
@@ -213,6 +219,7 @@ export async function POST(request: Request) {
 			carerId: carer.id,
 			carerEmail: carer.email,
 			carerName: carer.full_name,
+			carerStatus: carer.status,
 			documentType: documentTypeName,
 			rejectionReason: result.data.rejectionReason ?? '',
 			organizationId: carer.organization_id,
@@ -233,6 +240,7 @@ async function sendRejectionEmail({
 	carerId,
 	carerEmail,
 	carerName,
+	carerStatus,
 	documentType,
 	rejectionReason,
 	organizationId,
@@ -242,6 +250,7 @@ async function sendRejectionEmail({
 	carerId: string;
 	carerEmail: string;
 	carerName: string;
+	carerStatus: string | null;
 	documentType: string;
 	rejectionReason: string;
 	organizationId: string;
@@ -250,6 +259,10 @@ async function sendRejectionEmail({
 	try {
 		const apiKey = process.env.RESEND_API_KEY;
 		const fromEmail = process.env.RESEND_FROM_EMAIL;
+
+		if (!canReceiveOperationalCommunication(carerStatus)) {
+			return carerCommunicationBlockedMessage(carerStatus);
+		}
 
 		if (!apiKey || !fromEmail) {
 			return 'Rejection email is not configured.';

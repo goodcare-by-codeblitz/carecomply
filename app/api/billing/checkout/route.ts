@@ -2,6 +2,7 @@ import {
 	getPricingPlan,
 	getStripePriceEnvKey,
 	getStripePriceId,
+	getBillingEntitlements,
 	type BillingInterval,
 	type BillingPlan,
 } from '@/lib/billing';
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
 
 	if (plan.isEnterprise) {
 		return NextResponse.json(
-			{ ok: false, message: 'Contact sales for Guardian+ pricing.' },
+			{ ok: false, message: 'Contact sales for custom pricing.' },
 			{ status: 400 },
 		);
 	}
@@ -109,9 +110,24 @@ export async function POST(request: Request) {
 
 	const { data: billing } = await supabase
 		.from('organization_billing')
-		.select('stripe_customer_id, stripe_subscription_id, status')
+		.select('plan, interval, stripe_customer_id, stripe_subscription_id, status')
 		.eq('organization_id', organization.id)
 		.maybeSingle();
+	const entitlements = getBillingEntitlements(billing?.plan, billing?.status);
+
+	if (
+		entitlements.plan === plan.id &&
+		(entitlements.status === 'active' || entitlements.status === 'trialing')
+	) {
+		return NextResponse.json(
+			{
+				ok: true,
+				unchanged: true,
+				message: `You already have the ${plan.name} package.`,
+			},
+			{ status: 200 },
+		);
+	}
 
 	if (
 		billing?.stripe_subscription_id &&
@@ -160,7 +176,7 @@ export async function POST(request: Request) {
 		line_items: [{ price: priceId, quantity: 1 }],
 		allow_promotion_codes: true,
 		billing_address_collection: 'auto',
-		success_url: `${origin}/${organization.slug}/settings/billing?billing=success`,
+		success_url: `${origin}/${organization.slug}/settings/billing?billing=success&session_id={CHECKOUT_SESSION_ID}`,
 		cancel_url: `${origin}/${organization.slug}/settings/billing?billing=cancelled`,
 		custom_text: {
 			submit: {

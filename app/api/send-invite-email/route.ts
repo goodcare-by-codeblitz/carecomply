@@ -1,5 +1,9 @@
 import { createClient } from '@/lib/supabase/server';
 import { createUserAuditLog } from '@/lib/audit-server';
+import {
+	canReceiveOnboardingInvite,
+	carerCommunicationBlockedMessage,
+} from '@/lib/carer-communications';
 import { getInvitationLink } from '@/lib/invitations';
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
@@ -16,9 +20,15 @@ type InvitationForEmail = {
 	email: string;
 	invite_type: 'team_member' | 'carer';
 	expires_at: string | null;
+	carer_id: string | null;
+	carers: { status: string | null } | { status: string | null }[] | null;
 	organizations: { name: string } | { name: string }[] | null;
 	roles: { name: string } | { name: string }[] | null;
 };
+
+function normalizeRelation<T>(value: T | T[] | null | undefined) {
+	return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
 
 export async function POST(request: NextRequest) {
 	try {
@@ -44,7 +54,9 @@ export async function POST(request: NextRequest) {
 
 		const { data: invitation, error: inviteError } = await supabase
 			.from('organization_invitations')
-			.select('id, organization_id, email, invite_type, expires_at, organizations(name), roles(name)')
+			.select(
+				'id, organization_id, email, invite_type, expires_at, carer_id, carers(status), organizations(name), roles(name)',
+			)
 			.eq('token', token)
 			.eq('email', normalizedEmail)
 			.maybeSingle();
@@ -57,17 +69,37 @@ export async function POST(request: NextRequest) {
 		}
 
 		const invite = invitation as InvitationForEmail;
-		const organization = Array.isArray(invite.organizations)
-			? invite.organizations[0]
-			: invite.organizations;
+		const organization = normalizeRelation(invite.organizations);
 
-		const role = Array.isArray(invite.roles)
-			? invite.roles[0]
-			: invite.roles;
+		const role = normalizeRelation(invite.roles);
+		const carer = normalizeRelation(invite.carers);
 
 		const orgName = organization?.name ?? 'CareComply';
 		const resolvedRoleName = roleName ?? role?.name ?? 'team member';
 		const isCarerInvite = invite.invite_type === 'carer';
+
+		if (
+			isCarerInvite &&
+			(!invite.carer_id || !canReceiveOnboardingInvite(carer?.status))
+		) {
+			const message = carerCommunicationBlockedMessage(carer?.status);
+			await createUserAuditLog({
+				action: 'email.sent',
+				entityType: 'email',
+				organizationId: invite.organization_id,
+				entityId: invite.id,
+				entityName: normalizedEmail,
+				details: {
+					email_type: 'carer_onboarding_invite',
+					invite_type: invite.invite_type,
+					carer_status: carer?.status ?? null,
+					outcome: 'invite_email_skipped_carer_not_eligible',
+				},
+				request,
+			});
+
+			return NextResponse.json({ error: message }, { status: 409 });
+		}
 
 		const inviteUrl = getInvitationLink(
 			token,

@@ -15,6 +15,7 @@ import { FileText, Search, Filter } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { getCurrentOrgBySlug } from '@/lib/orgs';
+import { DocumentManagerActions } from '@/components/document-manager-actions';
 // import { DocumentViewer } from '@/components/document-viewer'
 
 interface Document {
@@ -332,6 +333,13 @@ export default function DocumentsPage() {
 													View
 												</a>
 											</Button>
+											<DocumentManagerActions
+												documentId={doc.id}
+												status={doc.status}
+												expiryDate={doc.expiry_date}
+												fileName={doc.file_name}
+												onChanged={fetchData}
+											/>
 										</div>
 									</div>
 								);

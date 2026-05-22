@@ -10,7 +10,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import { createClient } from '@/lib/supabase/client';
 import { Upload } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -45,22 +44,25 @@ export function DocumentUploader({
 		setIsSaving(true);
 
 		try {
-			const supabase = createClient();
-			const storagePath = `manual/${carerId}/${Date.now()}-${file.name}`;
+			const body = new FormData();
+			body.set('carerId', carerId);
+			body.set('documentTypeId', documentTypeId);
+			if (expiryDate) body.set('expiryDate', expiryDate);
+			body.set('file', file);
 
-			const { error } = await supabase.from('documents').insert({
-				carer_id: carerId,
-				document_type_id: documentTypeId,
-				file_name: file.name,
-				file_path: storagePath,
-				file_size: file.size,
-				status: 'pending',
-				expiry_date: expiryDate || null,
+			const response = await fetch('/api/documents/upload', {
+				method: 'POST',
+				body,
 			});
+			const payload = (await response.json().catch(() => ({}))) as {
+				error?: string;
+			};
 
-			if (error) throw error;
+			if (!response.ok) {
+				throw new Error(payload.error || 'Document could not be uploaded');
+			}
 
-			toast.success('Document recorded');
+			toast.success('Document uploaded');
 			setDocumentTypeId('');
 			setFile(null);
 			setExpiryDate('');

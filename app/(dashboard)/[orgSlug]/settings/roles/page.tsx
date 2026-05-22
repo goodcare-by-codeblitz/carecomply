@@ -1,5 +1,16 @@
 'use client';
 
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +33,7 @@ import {
 	Loader2,
 	Plus,
 	ShieldCheck,
+	Trash2,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -99,6 +111,7 @@ export default function RolesSettingsPage() {
 	const [updatingPermission, setUpdatingPermission] = useState<string | null>(
 		null,
 	);
+	const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
 
 	useEffect(() => {
 		if (storeOrg) {
@@ -288,6 +301,52 @@ export default function RolesSettingsPage() {
 		);
 	};
 
+	const deleteRole = async (role: RoleWithPermissions) => {
+		if (!organization) return;
+
+		if (role.is_system_role) {
+			toast.error('Protected system roles cannot be deleted');
+			return;
+		}
+
+		setDeletingRoleId(role.id);
+		let failedMessage: string | null = null;
+
+		try {
+			const response = await fetch('/api/settings/roles', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					orgId: organization.id,
+					roleId: role.id,
+				}),
+			});
+			const payload = await readJsonResponse<{ error?: string }>(response);
+
+			if (!response.ok) {
+				throw new Error(payload.error || 'Role could not be deleted');
+			}
+		} catch (error) {
+			failedMessage =
+				error instanceof Error ? error.message : 'Role could not be deleted';
+		}
+
+		setDeletingRoleId(null);
+
+		if (failedMessage) {
+			toast.error(failedMessage);
+			return;
+		}
+
+		setRoles((current) => current.filter((currentRole) => currentRole.id !== role.id));
+		setExpandedRoleIds((current) => {
+			const next = { ...current };
+			delete next[role.id];
+			return next;
+		});
+		toast.success('Role deleted');
+	};
+
 	return (
 		<Card>
 			<CardHeader>
@@ -347,36 +406,74 @@ export default function RolesSettingsPage() {
 
 							return (
 								<div key={role.id} className='rounded-md border'>
-									<button
-										type='button'
-										className='flex w-full items-center justify-between gap-4 p-4 text-left'
-										onClick={() =>
-											setExpandedRoleIds((current) => ({
-												...current,
-												[role.id]: !current[role.id],
-											}))
-										}>
-										<div className='min-w-0'>
-											<div className='flex flex-wrap items-center gap-2'>
-												{isExpanded ? (
-													<ChevronDown className='h-4 w-4 text-muted-foreground' />
-												) : (
-													<ChevronRight className='h-4 w-4 text-muted-foreground' />
-												)}
-												<h3 className='font-medium'>{role.name}</h3>
-												{role.is_system_role && (
-													<Badge variant='secondary'>Protected</Badge>
-												)}
+									<div className='flex items-center justify-between gap-4 p-4'>
+										<button
+											type='button'
+											className='flex min-w-0 flex-1 items-center justify-between gap-4 text-left'
+											onClick={() =>
+												setExpandedRoleIds((current) => ({
+													...current,
+													[role.id]: !current[role.id],
+												}))
+											}>
+											<div className='min-w-0'>
+												<div className='flex flex-wrap items-center gap-2'>
+													{isExpanded ? (
+														<ChevronDown className='h-4 w-4 text-muted-foreground' />
+													) : (
+														<ChevronRight className='h-4 w-4 text-muted-foreground' />
+													)}
+													<h3 className='font-medium'>{role.name}</h3>
+													{role.is_system_role && (
+														<Badge variant='secondary'>Protected</Badge>
+													)}
+												</div>
+												<p className='mt-1 line-clamp-1 text-sm text-muted-foreground'>
+													{role.description || 'No description yet.'}
+												</p>
 											</div>
-											<p className='mt-1 line-clamp-1 text-sm text-muted-foreground'>
-												{role.description || 'No description yet.'}
-											</p>
-										</div>
-										<div className='flex shrink-0 items-center gap-2 text-xs text-muted-foreground'>
-											<span>{role.permissionIds.length} permissions</span>
-											<ShieldCheck className='h-5 w-5' />
-										</div>
-									</button>
+											<div className='flex shrink-0 items-center gap-2 text-xs text-muted-foreground'>
+												<span>{role.permissionIds.length} permissions</span>
+												<ShieldCheck className='h-5 w-5' />
+											</div>
+										</button>
+
+										{!role.is_system_role && (
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button
+														type='button'
+														variant='outline'
+														size='sm'
+														disabled={deletingRoleId === role.id}>
+														{deletingRoleId === role.id ? (
+															<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+														) : (
+															<Trash2 className='mr-2 h-4 w-4' />
+														)}
+														Delete
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>Delete this role?</AlertDialogTitle>
+														<AlertDialogDescription>
+															This removes the custom role and its permissions. If any team
+															members still use this role, reassign them before deleting it.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<AlertDialogAction
+															variant='destructive'
+															onClick={() => deleteRole(role)}>
+															Delete role
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										)}
+									</div>
 
 									{isExpanded && (
 										<div className='grid gap-4 border-t p-4 md:grid-cols-2'>

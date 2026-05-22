@@ -28,8 +28,10 @@ import {
 	ChevronLeft,
 	ChevronRight,
 	Download,
+	ShieldCheck,
+	RefreshCcw,
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import {
 	Select,
 	SelectContent,
@@ -64,6 +66,24 @@ type AuditLog = {
 	created_at: string;
 };
 
+type AuditCapabilities = {
+	advancedAudit: boolean;
+	csvExport: boolean;
+	excelExport: boolean;
+	cqcFilters: boolean;
+	fullDetails: boolean;
+	maxRetentionDays: number | null;
+};
+
+const DEFAULT_AUDIT_CAPABILITIES: AuditCapabilities = {
+	advancedAudit: false,
+	csvExport: true,
+	excelExport: false,
+	cqcFilters: false,
+	fullDetails: false,
+	maxRetentionDays: 90,
+};
+
 const ACTION_ICONS: Record<string, typeof FileText> = {
 	'carer.created': Plus,
 	'carer.updated': Edit,
@@ -72,12 +92,15 @@ const ACTION_ICONS: Record<string, typeof FileText> = {
 	'document.uploaded': Upload,
 	'document.approved': CheckCircle,
 	'document.rejected': XCircle,
+	'document.replaced': RefreshCcw,
+	'document.updated': Edit,
 	'document.deleted': Trash2,
 	'document.viewed': Eye,
 	'reminder.created': Plus,
 	'reminder.updated': Edit,
 	'reminder.deleted': Trash2,
 	'reminder.toggled': Zap,
+	'reminder.worker_configuration_missing': XCircle,
 	'email.sent': Mail,
 	'settings.updated': Settings,
 	'user.login_attempted': User,
@@ -93,9 +116,13 @@ const ACTION_ICONS: Record<string, typeof FileText> = {
 	'carer.marked_former': Trash2,
 	'carer.marked_on_leave': Edit,
 	'carer.returned_from_leave': CheckCircle,
+	'carer.restored': CheckCircle,
+	'carer.suspended': XCircle,
 	'document_type.created': Plus,
 	'document_type.updated': Edit,
 	'document_type.deleted': Trash2,
+	'audit.exported': Download,
+	'audit.export_verified': ShieldCheck,
 	'invitation.revoked': XCircle,
 	'invitation.reinvited': Mail,
 	'onboarding.references_updated': Edit,
@@ -104,6 +131,11 @@ const ACTION_ICONS: Record<string, typeof FileText> = {
 	'reference.requested': Mail,
 	'reference.responded': CheckCircle,
 	'team.member_removed': Trash2,
+	'team.member_marked_former': Trash2,
+	'team.member_on_leave': Edit,
+	'team.member_restored': CheckCircle,
+	'team.member_returned': CheckCircle,
+	'team.member_suspended': XCircle,
 	'team.role_changed': Edit,
 };
 
@@ -115,12 +147,15 @@ const ACTION_LABELS: Record<string, string> = {
 	'document.uploaded': 'Uploaded document',
 	'document.approved': 'Approved document',
 	'document.rejected': 'Rejected document',
+	'document.replaced': 'Replaced document',
+	'document.updated': 'Updated document',
 	'document.deleted': 'Deleted document',
 	'document.viewed': 'Viewed document',
 	'reminder.created': 'Created reminder',
 	'reminder.updated': 'Updated reminder',
 	'reminder.deleted': 'Deleted reminder',
 	'reminder.toggled': 'Toggled reminder',
+	'reminder.worker_configuration_missing': 'Reminder worker configuration missing',
 	'email.sent': 'Sent email',
 	'settings.updated': 'Updated settings',
 	'user.login_attempted': 'Login attempted',
@@ -136,9 +171,13 @@ const ACTION_LABELS: Record<string, string> = {
 	'carer.marked_former': 'Moved carer to former',
 	'carer.marked_on_leave': 'Marked carer on leave',
 	'carer.returned_from_leave': 'Returned carer from leave',
+	'carer.restored': 'Restored carer',
+	'carer.suspended': 'Suspended carer',
 	'document_type.created': 'Created document requirement',
 	'document_type.updated': 'Updated document requirement',
 	'document_type.deleted': 'Deleted document requirement',
+	'audit.exported': 'Exported audit logs',
+	'audit.export_verified': 'Verified audit export',
 	'invitation.revoked': 'Revoked invitation',
 	'invitation.reinvited': 'Reinvited',
 	'onboarding.references_updated': 'Updated onboarding references',
@@ -147,6 +186,11 @@ const ACTION_LABELS: Record<string, string> = {
 	'reference.requested': 'Requested reference',
 	'reference.responded': 'Reference responded',
 	'team.member_removed': 'Removed team member',
+	'team.member_marked_former': 'Moved team member to former',
+	'team.member_on_leave': 'Marked team member on leave',
+	'team.member_restored': 'Restored team member',
+	'team.member_returned': 'Returned team member',
+	'team.member_suspended': 'Suspended team member',
 	'team.role_changed': 'Changed team role',
 };
 
@@ -162,6 +206,7 @@ const ENTITY_ICONS: Record<string, typeof FileText> = {
 	invitation: Mail,
 	reference: Mail,
 	team_member: Users,
+	audit_export: ShieldCheck,
 };
 
 export default function AuditLogsPage() {
@@ -178,6 +223,11 @@ export default function AuditLogsPage() {
 	const [page, setPage] = useState(1);
 	const [totalPages, setTotalPages] = useState(1);
 	const [exporting, setExporting] = useState(false);
+	const [verifying, setVerifying] = useState(false);
+	const [capabilities, setCapabilities] = useState<AuditCapabilities>(
+		DEFAULT_AUDIT_CAPABILITIES,
+	);
+	const verifyInputRef = useRef<HTMLInputElement | null>(null);
 	const pageSize = 20;
 
 	useEffect(() => {
@@ -190,6 +240,8 @@ export default function AuditLogsPage() {
 		const payload = (await response.json().catch(() => ({}))) as {
 			logs?: AuditLog[];
 			totalPages?: number;
+			capabilities?: AuditCapabilities;
+			warnings?: string[];
 			error?: string;
 		};
 
@@ -200,40 +252,47 @@ export default function AuditLogsPage() {
 		} else {
 			setLogs(payload.logs ?? []);
 			setTotalPages(payload.totalPages ?? 1);
+			setCapabilities(payload.capabilities ?? DEFAULT_AUDIT_CAPABILITIES);
+			payload.warnings?.forEach((warning) => toast.warning(warning));
 		}
 		setLoading(false);
 	};
 
-	const buildAuditUrl = (exportXlsx = false) => {
+	const buildAuditUrl = (exportFormat?: 'csv' | 'xlsx') => {
 		const params = new URLSearchParams({
 			orgSlug,
 			page: String(page),
 			pageSize: String(pageSize),
 		});
-		if (exportXlsx) params.set('export', 'xlsx');
+		if (exportFormat) params.set('export', exportFormat);
 		if (entityFilter !== 'all') params.set('entity_type', entityFilter);
-		if (categoryFilter !== 'all') params.set('category', categoryFilter);
-		if (severityFilter !== 'all') params.set('severity', severityFilter);
-		if (cqcFilter !== 'all') params.set('cqc_key_question', cqcFilter);
-		if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
-		if (dateTo) {
-			const end = new Date(dateTo);
-			end.setHours(23, 59, 59, 999);
-			params.set('dateTo', end.toISOString());
+		if (capabilities.advancedAudit) {
+			if (categoryFilter !== 'all') params.set('category', categoryFilter);
+			if (severityFilter !== 'all') params.set('severity', severityFilter);
+			if (cqcFilter !== 'all') params.set('cqc_key_question', cqcFilter);
+			if (dateFrom) params.set('dateFrom', new Date(dateFrom).toISOString());
+			if (dateTo) {
+				const end = new Date(dateTo);
+				end.setHours(23, 59, 59, 999);
+				params.set('dateTo', end.toISOString());
+			}
 		}
 		return `/api/audit?${params.toString()}`;
 	};
 
-	const exportAuditLogs = async () => {
+	const exportAuditLogs = async (format: 'csv' | 'xlsx') => {
 		setExporting(true);
 		try {
-			const response = await fetch(buildAuditUrl(true));
+			const response = await fetch(buildAuditUrl(format));
 			if (!response.ok) throw new Error('Export failed');
 			const blob = await response.blob();
 			const url = URL.createObjectURL(blob);
 			const link = document.createElement('a');
 			link.href = url;
-			link.download = `carecomply-cqc-audit-${orgSlug}.xlsx`;
+			link.download =
+				format === 'xlsx'
+					? `carecomply-cqc-audit-${orgSlug}.xlsx`
+					: `carecomply-audit-${orgSlug}.csv`;
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
@@ -242,6 +301,42 @@ export default function AuditLogsPage() {
 			toast.error('Audit export could not be downloaded');
 		} finally {
 			setExporting(false);
+		}
+	};
+
+	const verifyAuditExport = async (file: File | null) => {
+		if (!file) return;
+
+		setVerifying(true);
+		try {
+			const body = new FormData();
+			body.set('file', file);
+			const response = await fetch('/api/audit/verify-export', {
+				method: 'POST',
+				body,
+			});
+			const payload = (await response.json().catch(() => ({}))) as {
+				valid?: boolean;
+				reason?: string;
+				error?: string;
+			};
+
+			if (!response.ok) {
+				throw new Error(payload.error || payload.reason || 'Verification failed');
+			}
+
+			if (payload.valid) {
+				toast.success(payload.reason || 'Export is valid');
+			} else {
+				toast.error(payload.reason || 'Export has been changed');
+			}
+		} catch (error) {
+			toast.error(
+				error instanceof Error ? error.message : 'Export could not be verified',
+			);
+		} finally {
+			setVerifying(false);
+			if (verifyInputRef.current) verifyInputRef.current.value = '';
 		}
 	};
 
@@ -288,6 +383,13 @@ export default function AuditLogsPage() {
 	const label = (value: string | null) =>
 		value ? value.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase()) : 'Unspecified';
 
+	const cqcCoverage = ['safe', 'effective', 'caring', 'responsive', 'well_led'].map(
+		(key) => ({
+			key,
+			count: logs.filter((log) => log.cqc_key_question === key).length,
+		}),
+	);
+
 	return (
 		<div className='p-8 max-w-7xl mx-auto'>
 			{/* Page header */}
@@ -299,11 +401,74 @@ export default function AuditLogsPage() {
 						CQC inspection.
 					</p>
 				</div>
-				<Button type='button' variant='outline' onClick={exportAuditLogs} disabled={exporting}>
-					<Download className='mr-2 h-4 w-4' />
-					{exporting ? 'Exporting...' : 'Export Excel'}
-				</Button>
+				<div className='flex flex-wrap gap-2'>
+					<input
+						ref={verifyInputRef}
+						type='file'
+						accept='.csv,.xlsx'
+						className='hidden'
+						onChange={(event) =>
+							verifyAuditExport(event.currentTarget.files?.[0] ?? null)
+						}
+					/>
+					<Button
+						type='button'
+						variant='outline'
+						onClick={() => exportAuditLogs('csv')}
+						disabled={exporting}>
+						<Download className='mr-2 h-4 w-4' />
+						{exporting ? 'Exporting...' : 'Export CSV'}
+					</Button>
+					{capabilities.excelExport && (
+						<Button
+							type='button'
+							variant='outline'
+							onClick={() => exportAuditLogs('xlsx')}
+							disabled={exporting}>
+							<Download className='mr-2 h-4 w-4' />
+							Export Excel
+						</Button>
+					)}
+					<Button
+						type='button'
+						variant='outline'
+						onClick={() => verifyInputRef.current?.click()}
+						disabled={verifying}>
+						<ShieldCheck className='mr-2 h-4 w-4' />
+						{verifying ? 'Verifying...' : 'Verify export'}
+					</Button>
+				</div>
 			</div>
+
+			<p className='mb-6 text-sm text-muted-foreground'>
+				Tamper-evident exports include a CareComply signature. Use Verify
+				export to confirm a downloaded file has not changed.
+			</p>
+
+			{!capabilities.advancedAudit && (
+				<Card className='mb-6 border-amber-200 bg-amber-50/50'>
+					<CardContent className='py-4 text-sm text-amber-900'>
+						Starter includes 90-day basic audit logs with CSV export. Upgrade
+						to Pro for full CQC filters, evidence summaries, and Excel export.
+					</CardContent>
+				</Card>
+			)}
+
+			{capabilities.advancedAudit && (
+				<div className='mb-6 grid gap-3 md:grid-cols-5'>
+					{cqcCoverage.map((item) => (
+						<Card key={item.key}>
+							<CardContent className='flex items-center gap-3 p-4'>
+								<ShieldCheck className='h-5 w-5 text-muted-foreground' />
+								<div>
+									<p className='text-xs text-muted-foreground'>{label(item.key)}</p>
+									<p className='text-lg font-semibold'>{item.count}</p>
+								</div>
+							</CardContent>
+						</Card>
+					))}
+				</div>
+			)}
 
 			{/* Filters */}
 			<div className='grid gap-4 mb-6 lg:grid-cols-[minmax(0,1fr)_repeat(5,160px)]'>
@@ -338,6 +503,7 @@ export default function AuditLogsPage() {
 						<SelectItem value='team_member'>Team Members</SelectItem>
 					</SelectContent>
 				</Select>
+				{capabilities.advancedAudit && (
 				<Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
 					<SelectTrigger className='h-11'>
 						<SelectValue placeholder='Category' />
@@ -351,6 +517,8 @@ export default function AuditLogsPage() {
 						<SelectItem value='staffing'>Staffing</SelectItem>
 					</SelectContent>
 				</Select>
+				)}
+				{capabilities.advancedAudit && (
 				<Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
 					<SelectTrigger className='h-11'>
 						<SelectValue placeholder='Severity' />
@@ -362,6 +530,8 @@ export default function AuditLogsPage() {
 						<SelectItem value='critical'>Critical</SelectItem>
 					</SelectContent>
 				</Select>
+				)}
+				{capabilities.advancedAudit && (
 				<Select value={cqcFilter} onValueChange={(v) => { setCqcFilter(v); setPage(1); }}>
 					<SelectTrigger className='h-11'>
 						<SelectValue placeholder='CQC' />
@@ -375,8 +545,13 @@ export default function AuditLogsPage() {
 						<SelectItem value='well_led'>Well-led</SelectItem>
 					</SelectContent>
 				</Select>
-				<Input type='date' value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className='h-11' />
-				<Input type='date' value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className='h-11' />
+				)}
+				{capabilities.advancedAudit && (
+					<>
+						<Input type='date' value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className='h-11' />
+						<Input type='date' value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className='h-11' />
+					</>
+				)}
 			</div>
 
 			{/* Logs table */}
@@ -400,11 +575,13 @@ export default function AuditLogsPage() {
 										<TableHead className='w-40'>Time</TableHead>
 										<TableHead>User</TableHead>
 										<TableHead>Action</TableHead>
-										<TableHead>CQC</TableHead>
+										{capabilities.advancedAudit && <TableHead>CQC</TableHead>}
 										<TableHead>Entity</TableHead>
-										<TableHead className='hidden md:table-cell'>
-											Details
-										</TableHead>
+										{capabilities.fullDetails && (
+											<TableHead className='hidden md:table-cell'>
+												Details
+											</TableHead>
+										)}
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -444,14 +621,6 @@ export default function AuditLogsPage() {
 													</div>
 												</TableCell>
 												<TableCell>
-													<div className='space-y-1 text-xs'>
-														<div className='font-medium'>{label(log.cqc_key_question)}</div>
-														<div className='text-muted-foreground'>
-															{label(log.category)} &middot; {label(log.severity)}
-														</div>
-													</div>
-												</TableCell>
-												<TableCell>
 													<div className='flex items-center gap-2'>
 														<div
 															className={`w-7 h-7 rounded-lg flex items-center justify-center ${actionColor}`}>
@@ -462,6 +631,16 @@ export default function AuditLogsPage() {
 														</span>
 													</div>
 												</TableCell>
+												{capabilities.advancedAudit && (
+													<TableCell>
+														<div className='space-y-1 text-xs'>
+															<div className='font-medium'>{label(log.cqc_key_question)}</div>
+															<div className='text-muted-foreground'>
+																{label(log.category)} &middot; {label(log.severity)}
+															</div>
+														</div>
+													</TableCell>
+												)}
 												<TableCell>
 													{log.entity_name && (
 														<div className='flex items-center gap-2'>
@@ -472,26 +651,28 @@ export default function AuditLogsPage() {
 														</div>
 													)}
 												</TableCell>
-												<TableCell className='hidden md:table-cell'>
-													{log.details &&
-														Object.keys(log.details).length > 0 && (
-															<div className='max-w-md space-y-1 text-xs'>
-																{Object.entries(log.details)
-																	.filter(([key]) => !['user_agent'].includes(key))
-																	.slice(0, 4)
-																	.map(([key, value]) => (
-																		<div key={key} className='truncate'>
-																			<span className='font-medium'>
-																				{label(key)}:
-																			</span>{' '}
-																			{typeof value === 'object'
-																				? JSON.stringify(value)
-																				: String(value)}
-																		</div>
-																	))}
-															</div>
-														)}
-												</TableCell>
+												{capabilities.fullDetails && (
+													<TableCell className='hidden md:table-cell'>
+														{log.details &&
+															Object.keys(log.details).length > 0 && (
+																<div className='max-w-md space-y-1 text-xs'>
+																	{Object.entries(log.details)
+																		.filter(([key]) => !['user_agent'].includes(key))
+																		.slice(0, 4)
+																		.map(([key, value]) => (
+																			<div key={key} className='truncate'>
+																				<span className='font-medium'>
+																					{label(key)}:
+																				</span>{' '}
+																				{typeof value === 'object'
+																					? JSON.stringify(value)
+																					: String(value)}
+																			</div>
+																		))}
+																</div>
+															)}
+													</TableCell>
+												)}
 											</TableRow>
 										);
 									})}

@@ -1,5 +1,10 @@
 import { createAuthAuditEvent } from '@/lib/audit-server';
 import { getUserOrganizationsResult } from '@/lib/orgs';
+import {
+	bootstrapPlatformSuperAdmin,
+	getPlatformAccessForUser,
+} from '@/lib/platform-admin';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -20,6 +25,8 @@ export async function POST(request: Request) {
 	}
 
 	const email = payload.data.email.toLowerCase();
+	await bootstrapPlatformSuperAdmin(email);
+
 	await createAuthAuditEvent({
 		email,
 		outcome: 'attempted',
@@ -62,11 +69,15 @@ export async function POST(request: Request) {
 		);
 	}
 
+	const admin = createAdminClient();
+	const platformAccess = await getPlatformAccessForUser(admin, data.user.id);
+
 	return NextResponse.json({
 		user: {
 			id: data.user.id,
 			email: data.user.email,
 		},
 		organizations: organizationsResult.organizations,
+		platformAccess,
 	});
 }

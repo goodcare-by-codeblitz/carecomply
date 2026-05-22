@@ -23,6 +23,7 @@ export async function initOrgStore() {
 				organization_id,
 				user_id,
 				deleted_at,
+				status,
 				roles(
 					id,
 					organization_id,
@@ -44,7 +45,8 @@ export async function initOrgStore() {
 		`,
 		)
 		.eq('organization_memberships.user_id', user.id)
-		.is('organization_memberships.deleted_at', null);
+		.is('organization_memberships.deleted_at', null)
+		.in('organization_memberships.status', ['active', 'on_leave']);
 
 	if (!data) return;
 	// 🔥 critical fix for TS mismatch

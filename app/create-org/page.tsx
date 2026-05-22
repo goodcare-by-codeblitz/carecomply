@@ -10,6 +10,11 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+	isKnownBillingPlan,
+	normalizeBillingPlan,
+	type BillingInterval,
+} from '@/lib/billing';
 import { initOrgStore } from '@/lib/init-org';
 import {
 	getSlugTakenErrorMessage,
@@ -26,7 +31,7 @@ export default function CreateOrgPage() {
 	const [orgName, setOrgName] = useState('');
 	const [orgSlug, setOrgSlug] = useState('');
 	const [orgSlugTouched, setOrgSlugTouched] = useState(false);
-	const [billingPlan, setBillingPlan] = useState('carecore');
+	const [billingPlan, setBillingPlan] = useState('starter');
 	const [billingInterval, setBillingInterval] = useState('monthly');
 	const [error, setError] = useState<string | null>(null);
 	const [isLoading, setIsLoading] = useState(false);
@@ -44,8 +49,14 @@ export default function CreateOrgPage() {
 			setOrgSlug(slugify(orgSlugParam));
 			setOrgSlugTouched(true);
 		}
-		if (planParam) setBillingPlan(planParam);
-		if (intervalParam) setBillingInterval(intervalParam);
+		if (planParam) {
+			setBillingPlan(
+				isKnownBillingPlan(planParam) ? normalizeBillingPlan(planParam) : 'starter',
+			);
+		}
+		if (intervalParam === 'monthly' || intervalParam === 'yearly') {
+			setBillingInterval(intervalParam satisfies BillingInterval);
+		}
 	}, []);
 
 	const resolvedSlug = useMemo(
@@ -98,7 +109,25 @@ export default function CreateOrgPage() {
 				},
 			);
 
-			if (orgError) throw orgError;
+			if (orgError) {
+				const shouldTryLegacyCreate =
+					orgError.message?.includes('Invalid billing plan') ||
+					orgError.message?.includes('Could not find the function') ||
+					orgError.code === 'PGRST202';
+
+				if (!shouldTryLegacyCreate) throw orgError;
+
+				const { error: legacyOrgError } = await supabase.rpc(
+					'create_organization_with_roles',
+					{
+						p_user_id: user.id,
+						org_name: orgName,
+						org_slug: resolvedSlug,
+					},
+				);
+
+				if (legacyOrgError) throw legacyOrgError;
+			}
 
 			document.cookie = `current_org_slug=${resolvedSlug}; path=/; samesite=lax`;
 			await initOrgStore();

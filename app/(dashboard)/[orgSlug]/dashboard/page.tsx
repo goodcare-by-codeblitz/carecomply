@@ -29,6 +29,7 @@ function statusClass(status: string) {
 			return 'bg-blue-50 text-blue-700';
 		case 'expired':
 		case 'rejected':
+		case 'suspended':
 			return 'bg-red-50 text-red-700';
 		default:
 			return 'bg-muted text-muted-foreground';

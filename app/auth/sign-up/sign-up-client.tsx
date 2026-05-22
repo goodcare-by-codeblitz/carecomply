@@ -36,15 +36,7 @@ export function SignUpClient() {
 		);
 	}
 
-	const features = [
-		'Automated compliance reminders',
-		'Document expiry tracking',
-		'Carer onboarding portal',
-		'Real-time compliance dashboard',
-		'Secure document storage',
-		'Customizable compliance checklists',
-		'Multi-user access with role-based permissions',
-	];
+	const features = selectedPlan.features;
 
 	return (
 		<div className='min-h-screen relative flex flex-row'>

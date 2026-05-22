@@ -28,6 +28,7 @@ export function normalize(data: Organization[]): NormalizedState {
 				user_id: m.user_id,
 				organization_id: m.organization_id,
 				role_id: role?.id ?? null,
+				status: m.status ?? 'active',
 			};
 
 			if (role) {

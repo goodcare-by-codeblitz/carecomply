@@ -8,8 +8,17 @@ import { z } from 'zod';
 
 const requestSchema = z.object({
 	carerId: z.string().uuid(),
-	action: z.enum(['mark_on_leave', 'return_from_leave', 'mark_former']),
+	action: z.enum([
+		'mark_on_leave',
+		'return_from_leave',
+		'mark_suspended',
+		'return_from_suspension',
+		'mark_former',
+		'restore_former',
+	]),
 });
+
+const EMPLOYMENT_HOLD_STATUSES = new Set(['on_leave', 'suspended', 'former']);
 
 export async function POST(request: Request) {
 	const supabase = await createClient();
@@ -33,7 +42,7 @@ export async function POST(request: Request) {
 	const admin = createAdminClient();
 	const { data: carer, error: carerError } = await admin
 		.from('carers')
-		.select('id, organization_id, full_name, email, status, onboarding_progress')
+		.select('id, organization_id, full_name, email, status, previous_status, onboarding_progress')
 		.eq('id', result.data.carerId)
 		.maybeSingle();
 
@@ -42,7 +51,7 @@ export async function POST(request: Request) {
 	}
 
 	const permission =
-		result.data.action === 'mark_former'
+		result.data.action === 'mark_former' || result.data.action === 'restore_former'
 			? PERMISSIONS.CARERS_DELETE
 			: PERMISSIONS.CARERS_EDIT;
 	const { data: hasPermission } = await supabase.rpc('has_org_permission', {
@@ -57,20 +66,33 @@ export async function POST(request: Request) {
 		);
 	}
 
-	if (carer.status === 'former') {
+	if (carer.status === 'former' && result.data.action !== 'restore_former') {
 		return NextResponse.json(
-			{ error: 'Former employees cannot be changed from this action.' },
+			{ error: 'Former employees must be restored before other status changes.' },
 			{ status: 400 },
 		);
 	}
 
 	const now = new Date().toISOString();
 
-	if (result.data.action === 'mark_on_leave') {
+	if (result.data.action === 'mark_on_leave' || result.data.action === 'mark_suspended') {
+		const nextStatus =
+			result.data.action === 'mark_on_leave' ? 'on_leave' : 'suspended';
+		const action =
+			result.data.action === 'mark_on_leave'
+				? 'carer.marked_on_leave'
+				: 'carer.suspended';
+		const outcome =
+			result.data.action === 'mark_on_leave'
+				? 'carer_marked_on_leave'
+				: 'carer_suspended';
 		const { data, error } = await admin
 			.from('carers')
 			.update({
-				status: 'on_leave',
+				status: nextStatus,
+				previous_status: EMPLOYMENT_HOLD_STATUSES.has(carer.status ?? '')
+					? (carer.previous_status ?? 'active')
+					: carer.status,
 				status_changed_at: now,
 				status_changed_by: user.id,
 				updated_at: now,
@@ -81,24 +103,29 @@ export async function POST(request: Request) {
 
 		if (error) {
 			return NextResponse.json(
-				{ error: 'Carer could not be marked on leave.' },
+				{
+					error:
+						result.data.action === 'mark_on_leave'
+							? 'Carer could not be marked on leave.'
+							: 'Carer could not be suspended.',
+				},
 				{ status: 500 },
 			);
 		}
 
 		await createUserAuditLog({
-			action: 'carer.marked_on_leave',
+			action,
 			entityType: 'carer',
 			organizationId: carer.organization_id,
 			entityId: carer.id,
 			entityName: carer.full_name,
 			details: {
-				before: { status: carer.status },
-				after: { status: 'on_leave' },
-				changed_fields: ['status'],
+				before: { status: carer.status, previous_status: carer.previous_status },
+				after: { status: nextStatus, previous_status: data.previous_status },
+				changed_fields: ['status', 'previous_status'],
 				carer_email: carer.email,
 				permission_checked: PERMISSIONS.CARERS_EDIT,
-				outcome: 'carer_marked_on_leave',
+				outcome,
 			},
 			request,
 		});
@@ -129,6 +156,9 @@ export async function POST(request: Request) {
 			.from('carers')
 			.update({
 				status: 'former',
+				previous_status: EMPLOYMENT_HOLD_STATUSES.has(carer.status ?? '')
+					? (carer.previous_status ?? 'active')
+					: carer.status,
 				status_changed_at: now,
 				status_changed_by: user.id,
 				former_at: now,
@@ -166,10 +196,15 @@ export async function POST(request: Request) {
 			details: {
 				before: {
 					status: carer.status,
+					previous_status: carer.previous_status,
 					onboarding_progress: carer.onboarding_progress,
 				},
-				after: { status: 'former', former_at: now },
-				changed_fields: ['status', 'former_at'],
+				after: {
+					status: 'former',
+					previous_status: data.previous_status,
+					former_at: now,
+				},
+				changed_fields: ['status', 'previous_status', 'former_at'],
 				carer_email: carer.email,
 				document_counts: {
 					pending: pendingDocuments ?? 0,
@@ -186,6 +221,26 @@ export async function POST(request: Request) {
 		return NextResponse.json({ ok: true, carer: data });
 	}
 
+	if (
+		result.data.action === 'return_from_leave' ||
+		result.data.action === 'return_from_suspension' ||
+		result.data.action === 'restore_former'
+	) {
+		const expectedStatus =
+			result.data.action === 'return_from_leave'
+				? 'on_leave'
+				: result.data.action === 'return_from_suspension'
+					? 'suspended'
+					: 'former';
+
+		if (carer.status !== expectedStatus) {
+			return NextResponse.json(
+				{ error: `Carer is not currently ${expectedStatus.replace('_', ' ')}.` },
+				{ status: 400 },
+			);
+		}
+	}
+
 	const previousStatus = carer.status;
 	const status = await updateCarerOnboardingProgress(
 		admin,
@@ -194,22 +249,64 @@ export async function POST(request: Request) {
 		{ preserveEmploymentStatus: false },
 	);
 
+	const restoreUpdate: Record<string, string | null> = {
+		previous_status: null,
+		status_changed_at: now,
+		status_changed_by: user.id,
+		updated_at: now,
+	};
+
+	if (result.data.action === 'restore_former') {
+		restoreUpdate.former_at = null;
+	}
+
+	const { data: updatedCarer, error: restoreError } = await admin
+		.from('carers')
+		.update(restoreUpdate)
+		.eq('id', carer.id)
+		.select('*')
+		.single();
+
+	if (restoreError) {
+		return NextResponse.json(
+			{ error: 'Carer status could not be restored.' },
+			{ status: 500 },
+		);
+	}
+
+	const auditAction =
+		result.data.action === 'restore_former'
+			? 'carer.restored'
+			: result.data.action === 'return_from_suspension'
+				? 'carer.restored'
+				: 'carer.returned_from_leave';
+	const outcome =
+		result.data.action === 'restore_former'
+			? 'former_carer_restored'
+			: result.data.action === 'return_from_suspension'
+				? 'carer_returned_from_suspension'
+				: 'returned_from_leave_and_recalculated_compliance';
+
 	await createUserAuditLog({
-		action: 'carer.returned_from_leave',
+		action: auditAction,
 		entityType: 'carer',
 		organizationId: carer.organization_id,
 		entityId: carer.id,
 		entityName: carer.full_name,
 		details: {
-			before: { status: previousStatus },
-			after: status,
-			changed_fields: ['status', 'onboarding_progress'],
+			before: { status: previousStatus, previous_status: carer.previous_status },
+			after: {
+				...status,
+				previous_status: null,
+				former_at: updatedCarer.former_at ?? null,
+			},
+			changed_fields: ['status', 'previous_status', 'onboarding_progress'],
 			carer_email: carer.email,
-			permission_checked: PERMISSIONS.CARERS_EDIT,
-			outcome: 'returned_from_leave_and_recalculated_compliance',
+			permission_checked: permission,
+			outcome,
 		},
 		request,
 	});
 
-	return NextResponse.json({ ok: true, carer: { ...carer, ...status } });
+	return NextResponse.json({ ok: true, carer: { ...updatedCarer, ...status } });
 }

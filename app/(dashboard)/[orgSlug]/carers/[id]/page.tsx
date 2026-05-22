@@ -26,8 +26,10 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { DocumentUploader } from '@/components/document-uploader';
+import { DocumentManagerActions } from '@/components/document-manager-actions';
 import { InviteLinkCard } from '@/components/invite-link-card';
 import { CarerStatusActions } from '@/components/carer-status-actions';
+import { CarerProfileCard } from '@/components/carer-profile-card';
 import {
 	CarerReferenceActions,
 	type CarerReferenceForActions,
@@ -110,7 +112,7 @@ export default async function CarerPage({ params }: CarerPageProps) {
 	const { data: references } = await supabase
 		.from('carer_references')
 		.select(
-			'id, full_name, organization, email, phone, relationship, notes, reference_type, status, request_sent_at, request_error, response_received_at, response_payload, response_url, reviewed_at, review_notes',
+			'id, full_name, organization, email, phone, relationship, notes, reference_type, status, request_sent_at, request_attempted_at, request_error, response_received_at, response_payload, response_url, reviewed_at, review_notes',
 		)
 		.eq('carer_id', id)
 		.order('created_at', { ascending: true });
@@ -178,9 +180,11 @@ export default async function CarerPage({ params }: CarerPageProps) {
 										? 'bg-red-50 text-red-700'
 										: carer.status === 'on_leave'
 											? 'bg-blue-50 text-blue-700'
-											: carer.status === 'former'
-												? 'bg-slate-100 text-slate-700'
-												: 'bg-muted text-muted-foreground'
+											: carer.status === 'suspended'
+												? 'bg-red-50 text-red-700'
+												: carer.status === 'former'
+													? 'bg-slate-100 text-slate-700'
+													: 'bg-muted text-muted-foreground'
 						}`}>
 						{carer.status
 							.replace(/_/g, ' ')
@@ -191,6 +195,8 @@ export default async function CarerPage({ params }: CarerPageProps) {
 			</div>
 
 			<div className='space-y-6'>
+				<CarerProfileCard carer={carer} />
+
 				{/* Documents list */}
 				<div>
 					<Card>
@@ -248,6 +254,12 @@ export default async function CarerPage({ params }: CarerPageProps) {
 														View
 													</a>
 												</Button>
+												<DocumentManagerActions
+													documentId={doc.id}
+													status={doc.status}
+													expiryDate={doc.expiry_date}
+													fileName={doc.file_name}
+												/>
 											</div>
 										</div>
 									))}

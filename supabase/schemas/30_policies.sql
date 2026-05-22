@@ -3,15 +3,23 @@ alter table public.profiles enable row level security;
 alter table public.permissions enable row level security;
 alter table public.roles enable row level security;
 alter table public.role_permissions enable row level security;
+alter table public.platform_memberships enable row level security;
 alter table public.organization_memberships enable row level security;
 alter table public.carers enable row level security;
 alter table public.carer_references enable row level security;
 alter table public.document_types enable row level security;
 alter table public.documents enable row level security;
 alter table public.organization_billing enable row level security;
+alter table public.reminders enable row level security;
+alter table public.reminder_jobs enable row level security;
+alter table public.reminder_logs enable row level security;
+alter table public.reference_jobs enable row level security;
+alter table public.reference_logs enable row level security;
 alter table public.stripe_events enable row level security;
 alter table public.audit_logs enable row level security;
+alter table public.audit_exports enable row level security;
 alter table public.auth_audit_events enable row level security;
+alter table public.platform_settings enable row level security;
 alter table public.organization_invitations enable row level security;
 
 create policy "Authenticated users can view permissions"
@@ -27,6 +35,7 @@ to authenticated
 using (
   user_id = auth.uid()
   and deleted_at is null
+  and coalesce(status, 'active') in ('active', 'on_leave')
 );
 
 create policy "Users can view own profile"
@@ -34,6 +43,12 @@ on public.profiles
 for select
 to authenticated
 using (id = auth.uid());
+
+create policy "Users can view own platform membership"
+on public.platform_memberships
+for select
+to authenticated
+using (user_id = auth.uid());
 
 create policy "Team viewers can view active organization memberships"
 on public.organization_memberships
@@ -187,7 +202,40 @@ using (
 grant select on table public.document_types to authenticated;
 grant select on table public.organization_billing to authenticated;
 grant select, insert, update, delete on table public.organization_billing to service_role;
+grant select on table public.reminders to authenticated;
+grant select on table public.reminder_logs to authenticated;
+grant select, insert, update, delete on table public.reminders to service_role;
+grant select, insert, update, delete on table public.reminder_jobs to service_role;
+grant select, insert, update, delete on table public.reminder_logs to service_role;
+grant select, insert, update, delete on table public.reference_jobs to service_role;
+grant select, insert, update, delete on table public.reference_logs to service_role;
+grant select on table public.reference_logs to authenticated;
 grant select, insert, update, delete on table public.stripe_events to service_role;
+
+create policy "Automation viewers can view reminders"
+on public.reminders
+for select
+to authenticated
+using (public.has_org_permission(organization_id, 'automations.view'));
+
+create policy "Automation viewers can view reminder logs"
+on public.reminder_logs
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.carers c
+    where c.id = reminder_logs.carer_id
+      and public.has_org_permission(c.organization_id, 'automations.view')
+  )
+);
+
+create policy "Members can view reference logs"
+on public.reference_logs
+for select
+to authenticated
+using (public.has_org_permission(organization_id, 'carers.view'));
 
 create policy "Audit viewers can view organization audit logs"
 on public.audit_logs
@@ -197,7 +245,19 @@ using (public.has_org_permission(organization_id, 'audit.view'));
 
 grant select on table public.audit_logs to authenticated;
 grant select, insert, update, delete on table public.audit_logs to service_role;
+grant select on table public.audit_exports to authenticated;
+grant select, insert, update, delete on table public.audit_exports to service_role;
 grant select, insert, update, delete on table public.auth_audit_events to service_role;
+grant select on table public.platform_memberships to authenticated;
+grant select, insert, update, delete on table public.platform_memberships to service_role;
+grant select, insert, update, delete on table public.platform_settings to service_role;
+
+drop policy if exists "Audit viewers can view organization audit exports" on public.audit_exports;
+create policy "Audit viewers can view organization audit exports"
+on public.audit_exports
+for select
+to authenticated
+using (public.has_org_permission(organization_id, 'audit.view'));
 
 grant select, insert, update, delete on table public.carers to authenticated;
 grant select, insert, update, delete on table public.organization_invitations to authenticated;

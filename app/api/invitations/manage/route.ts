@@ -1,5 +1,9 @@
 import { PERMISSIONS } from '@/lib/permissions';
 import { createUserAuditLog } from '@/lib/audit-server';
+import {
+	canReceiveOnboardingInvite,
+	carerCommunicationBlockedMessage,
+} from '@/lib/carer-communications';
 import { createInvitationToken, getInviteExpiry } from '@/lib/invitations';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -108,6 +112,28 @@ export async function POST(request: Request) {
 	}
 
 	if (payload.action === 'reinvite') {
+		if (invitation.invite_type === 'carer') {
+			if (!invitation.carer_id) {
+				return NextResponse.json(
+					{ error: 'Carer invitation is not linked to a carer.' },
+					{ status: 409 },
+				);
+			}
+
+			const { data: carer } = await admin
+				.from('carers')
+				.select('status')
+				.eq('id', invitation.carer_id)
+				.maybeSingle();
+
+			if (!canReceiveOnboardingInvite(carer?.status)) {
+				return NextResponse.json(
+					{ error: carerCommunicationBlockedMessage(carer?.status) },
+					{ status: 409 },
+				);
+			}
+		}
+
 		const now = new Date().toISOString();
 		const { data, error } = await admin
 			.from('organization_invitations')

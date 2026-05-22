@@ -1,25 +1,5 @@
-export type ReferenceRequestRow = {
-	id: string;
-	full_name: string;
-	organization: string | null;
-	email: string;
-	phone: string;
-	relationship: string;
-	reference_type: string;
-};
-
-export type ReferenceRequestCarer = {
-	id: string;
-	organization_id: string;
-	full_name: string;
-	email: string;
-	phone: string | null;
-};
-
-export type ReferenceRequestOrganization = {
-	name: string;
-	slug: string;
-} | null;
+import { randomBytes } from 'crypto';
+import type { createAdminClient } from '@/lib/supabase/admin';
 
 export type ReferenceRequestResult = {
 	referenceId: string;
@@ -28,68 +8,134 @@ export type ReferenceRequestResult = {
 };
 
 export const REFERENCE_SELECT_FIELDS =
-	'id, full_name, organization, email, phone, relationship, notes, reference_type, status, request_sent_at, request_error, response_received_at, response_payload, response_url, reviewed_at, review_notes';
+	'id, full_name, organization, email, phone, relationship, notes, reference_type, status, request_sent_at, request_attempted_at, request_error, response_received_at, response_payload, response_url, reviewed_at, review_notes';
 
-export async function sendReferenceRequestToN8n({
-	reference,
-	carer,
-	organization,
+export function createReferenceToken() {
+	return randomBytes(32).toString('hex');
+}
+
+export function getReferenceTokenExpiry(days = 30) {
+	const expiresAt = new Date();
+	expiresAt.setDate(expiresAt.getDate() + days);
+	return expiresAt.toISOString();
+}
+
+export function getReferenceFormLink(token: string, origin?: string) {
+	const appUrl = (origin || process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '');
+	return `${appUrl}/reference/${token}`;
+}
+
+export async function ensureReferenceToken(
+	admin: ReturnType<typeof createAdminClient>,
+	referenceId: string,
+) {
+	const token = createReferenceToken();
+	const tokenExpiresAt = getReferenceTokenExpiry();
+	const { data, error } = await admin
+		.from('carer_references')
+		.update({
+			reference_token: token,
+			token_expires_at: tokenExpiresAt,
+			updated_at: new Date().toISOString(),
+		})
+		.eq('id', referenceId)
+		.select('reference_token, token_expires_at')
+		.single();
+
+	if (error || !data?.reference_token) {
+		throw new Error(error?.message ?? 'Reference token could not be created.');
+	}
+
+	return {
+		token: data.reference_token as string,
+		tokenExpiresAt: data.token_expires_at as string | null,
+	};
+}
+
+export async function enqueueReferenceRequestJob({
+	admin,
+	referenceId,
+	organizationId,
+	carerId,
+	jobType = 'initial_request',
+	requestedBy,
 }: {
-	reference: ReferenceRequestRow;
-	carer: ReferenceRequestCarer;
-	organization: ReferenceRequestOrganization;
+	admin: ReturnType<typeof createAdminClient>;
+	referenceId: string;
+	organizationId: string;
+	carerId: string;
+	jobType?: 'initial_request' | 'chase';
+	requestedBy?: string | null;
 }): Promise<ReferenceRequestResult> {
-	const webhookUrl = process.env.N8N_REFERENCE_REQUEST_WEBHOOK_URL;
-	if (!webhookUrl) {
-		return {
-			referenceId: reference.id,
-			ok: false,
-			error: 'N8N_REFERENCE_REQUEST_WEBHOOK_URL is not configured.',
-		};
+	const attemptedAt = new Date().toISOString();
+	const { error: referenceError } = await admin
+		.from('carer_references')
+		.update({
+			request_attempted_at: attemptedAt,
+			request_error: null,
+			updated_at: attemptedAt,
+		})
+		.eq('id', referenceId);
+
+	if (referenceError) {
+		return { referenceId, ok: false, error: referenceError.message };
 	}
 
-	try {
-		const response = await fetch(webhookUrl, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				referenceId: reference.id,
-				carerId: carer.id,
-				organizationId: carer.organization_id,
-				organization: organization
-					? { name: organization.name, slug: organization.slug }
-					: null,
-				carer: {
-					fullName: carer.full_name,
-					email: carer.email,
-					phone: carer.phone,
-				},
-				reference: {
-					fullName: reference.full_name,
-					email: reference.email,
-					phone: reference.phone,
-					organization: reference.organization,
-					relationship: reference.relationship,
-					referenceType: reference.reference_type,
-				},
-			}),
-		});
+	const { error } = await admin.from('reference_jobs').upsert(
+		{
+			organization_id: organizationId,
+			reference_id: referenceId,
+			carer_id: carerId,
+			job_type: jobType,
+			status: 'queued',
+			due_at: attemptedAt,
+			idempotency_key: `${jobType}:${referenceId}:${attemptedAt}`,
+			payload: { requested_by: requestedBy ?? null },
+			attempts: 0,
+			last_error: null,
+			processed_at: null,
+			updated_at: attemptedAt,
+		},
+		{ onConflict: 'idempotency_key' },
+	);
 
-		if (!response.ok) {
-			return {
-				referenceId: reference.id,
-				ok: false,
-				error: `n8n returned ${response.status}`,
-			};
-		}
+	if (error) {
+		await admin
+			.from('carer_references')
+			.update({
+				request_error: error.message,
+				updated_at: attemptedAt,
+			})
+			.eq('id', referenceId);
 
-		return { referenceId: reference.id, ok: true, error: null };
-	} catch (error) {
-		console.warn('Reference request handoff to n8n failed:', error);
-		return {
-			referenceId: reference.id,
-			ok: false,
-			error: error instanceof Error ? error.message : 'Unknown n8n error',
-		};
+		return { referenceId, ok: false, error: error.message };
 	}
+
+	return { referenceId, ok: true, error: null };
+}
+
+export async function enqueueManagerNotificationJob({
+	admin,
+	referenceId,
+	organizationId,
+	carerId,
+}: {
+	admin: ReturnType<typeof createAdminClient>;
+	referenceId: string;
+	organizationId: string;
+	carerId: string;
+}) {
+	return admin.from('reference_jobs').upsert(
+		{
+			organization_id: organizationId,
+			reference_id: referenceId,
+			carer_id: carerId,
+			job_type: 'manager_notification',
+			status: 'queued',
+			due_at: new Date().toISOString(),
+			idempotency_key: `manager_notification:${referenceId}`,
+			payload: {},
+		},
+		{ onConflict: 'idempotency_key' },
+	);
 }

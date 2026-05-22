@@ -1,4 +1,5 @@
 import { CARER_DOCUMENTS_BUCKET } from '@/lib/onboarding';
+import { createUserAuditLog } from '@/lib/audit-server';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -6,12 +7,17 @@ import { NextResponse } from 'next/server';
 
 type DocumentFileRow = {
 	id: string;
+	file_name: string;
 	file_path: string;
 	carers:
 		| {
+				id: string;
+				full_name: string;
 				organization_id: string;
 		  }
 		| {
+				id: string;
+				full_name: string;
 				organization_id: string;
 		  }[]
 		| null;
@@ -44,7 +50,7 @@ export async function GET(request: Request) {
 	const admin = createAdminClient();
 	const { data, error } = await admin
 		.from('documents')
-		.select('id, file_path, carers!inner(organization_id)')
+		.select('id, file_name, file_path, carers!inner(id, full_name, organization_id)')
 		.eq('id', documentId)
 		.maybeSingle();
 
@@ -90,6 +96,21 @@ export async function GET(request: Request) {
 			{ status: 500 },
 		);
 	}
+
+	await createUserAuditLog({
+		action: 'document.viewed',
+		entityType: 'document',
+		organizationId: carer.organization_id,
+		entityId: document.id,
+		entityName: document.file_name,
+		details: {
+			carer_id: carer.id,
+			carer_name: carer.full_name,
+			file_name: document.file_name,
+			outcome: 'read_only_document_file_opened',
+		},
+		request,
+	});
 
 	return NextResponse.redirect(signedUrl.signedUrl);
 }

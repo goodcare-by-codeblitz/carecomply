@@ -2,6 +2,7 @@
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { PersonDetailsForm } from '@/components/carer-profile-card';
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -60,16 +61,20 @@ import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/client';
 import {
 	Copy,
+	Clock,
 	Loader2,
 	MailPlus,
+	Pencil,
 	RefreshCw,
 	Shield,
+	ShieldAlert,
 	Trash2,
 	UserMinus,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import type { PersonDetailsInput, TeamMemberDetailsInput } from '@/lib/person-profile';
 
 type Role = {
 	id: string;
@@ -82,6 +87,21 @@ type Member = {
 	id: string;
 	user_id: string;
 	role_id: string | null;
+	status: TeamMemberStatus;
+	previous_status: string | null;
+	former_at: string | null;
+	phone: string | null;
+	job_title: string | null;
+	department: string | null;
+	address_line1: string | null;
+	address_line2: string | null;
+	city: string | null;
+	county: string | null;
+	postcode: string | null;
+	emergency_contact_name: string | null;
+	emergency_contact_relationship: string | null;
+	emergency_contact_phone: string | null;
+	emergency_contact_email: string | null;
 	profile: {
 		full_name: string | null;
 		email: string | null;
@@ -90,6 +110,16 @@ type Member = {
 	role: Role | null;
 };
 
+type TeamMemberStatus = 'active' | 'on_leave' | 'suspended' | 'former';
+
+type TeamStatusAction =
+	| 'mark_on_leave'
+	| 'return_from_leave'
+	| 'mark_suspended'
+	| 'return_from_suspension'
+	| 'mark_former'
+	| 'restore_former';
+
 type MembershipActionResponse = {
 	error?: string;
 	membership?: {
@@ -97,6 +127,21 @@ type MembershipActionResponse = {
 		user_id: string;
 		role_id: string | null;
 		deleted_at?: string | null;
+		status?: TeamMemberStatus | null;
+		previous_status?: string | null;
+		former_at?: string | null;
+		phone?: string | null;
+		job_title?: string | null;
+		department?: string | null;
+		address_line1?: string | null;
+		address_line2?: string | null;
+		city?: string | null;
+		county?: string | null;
+		postcode?: string | null;
+		emergency_contact_name?: string | null;
+		emergency_contact_relationship?: string | null;
+		emergency_contact_phone?: string | null;
+		emergency_contact_email?: string | null;
 	};
 	role?: Role;
 };
@@ -117,6 +162,21 @@ function normalizeMember(row: unknown): Member {
 		id: string;
 		user_id: string;
 		role_id?: string | null;
+		status?: TeamMemberStatus | null;
+		previous_status?: string | null;
+		former_at?: string | null;
+		phone?: string | null;
+		job_title?: string | null;
+		department?: string | null;
+		address_line1?: string | null;
+		address_line2?: string | null;
+		city?: string | null;
+		county?: string | null;
+		postcode?: string | null;
+		emergency_contact_name?: string | null;
+		emergency_contact_relationship?: string | null;
+		emergency_contact_phone?: string | null;
+		emergency_contact_email?: string | null;
 		profiles?: Member['profile'] | Member['profile'][];
 		roles?: Role | Role[] | null;
 	};
@@ -125,6 +185,22 @@ function normalizeMember(row: unknown): Member {
 		id: membership.id,
 		user_id: membership.user_id,
 		role_id: membership.role_id ?? null,
+		status: membership.status ?? 'active',
+		previous_status: membership.previous_status ?? null,
+		former_at: membership.former_at ?? null,
+		phone: membership.phone ?? null,
+		job_title: membership.job_title ?? null,
+		department: membership.department ?? null,
+		address_line1: membership.address_line1 ?? null,
+		address_line2: membership.address_line2 ?? null,
+		city: membership.city ?? null,
+		county: membership.county ?? null,
+		postcode: membership.postcode ?? null,
+		emergency_contact_name: membership.emergency_contact_name ?? null,
+		emergency_contact_relationship:
+			membership.emergency_contact_relationship ?? null,
+		emergency_contact_phone: membership.emergency_contact_phone ?? null,
+		emergency_contact_email: membership.emergency_contact_email ?? null,
 		profile: Array.isArray(membership.profiles)
 			? (membership.profiles[0] ?? null)
 			: (membership.profiles ?? null),
@@ -138,6 +214,35 @@ function statusVariant(status: InvitationStatus) {
 	if (status === 'pending') return 'default';
 	if (status === 'accepted') return 'secondary';
 	return 'outline';
+}
+
+function memberStatusVariant(status: TeamMemberStatus) {
+	if (status === 'active') return 'secondary';
+	if (status === 'on_leave') return 'outline';
+	if (status === 'suspended') return 'destructive';
+	return 'outline';
+}
+
+function formatMemberStatus(status: TeamMemberStatus) {
+	return status.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase());
+}
+
+function teamDetailsToForm(member: Member): TeamMemberDetailsInput {
+	return {
+		phone: member.phone ?? '',
+		jobTitle: member.job_title ?? '',
+		department: member.department ?? '',
+		addressLine1: member.address_line1 ?? '',
+		addressLine2: member.address_line2 ?? '',
+		city: member.city ?? '',
+		county: member.county ?? '',
+		postcode: member.postcode ?? '',
+		emergencyContactName: member.emergency_contact_name ?? '',
+		emergencyContactRelationship:
+			member.emergency_contact_relationship ?? '',
+		emergencyContactPhone: member.emergency_contact_phone ?? '',
+		emergencyContactEmail: member.emergency_contact_email ?? '',
+	};
 }
 
 async function sendInviteEmail({
@@ -192,6 +297,23 @@ export default function TeamPage() {
 	const [inviteEmail, setInviteEmail] = useState('');
 	const [inviteRoleId, setInviteRoleId] = useState('');
 	const [isInviting, setIsInviting] = useState(false);
+	const [editingMember, setEditingMember] = useState<Member | null>(null);
+	const [memberDetailsForm, setMemberDetailsForm] =
+		useState<TeamMemberDetailsInput>({
+			phone: '',
+			jobTitle: '',
+			department: '',
+			addressLine1: '',
+			addressLine2: '',
+			city: '',
+			county: '',
+			postcode: '',
+			emergencyContactName: '',
+			emergencyContactRelationship: '',
+			emergencyContactPhone: '',
+			emergencyContactEmail: '',
+		});
+	const [isSavingMemberDetails, setIsSavingMemberDetails] = useState(false);
 
 	const selectedInviteRole = useMemo(
 		() => roles.find((role) => role.id === inviteRoleId) ?? roles[0] ?? null,
@@ -228,7 +350,7 @@ export default function TeamPage() {
 			supabase
 				.from('organization_memberships')
 				.select(
-					'id, user_id, role_id, roles(id, name, description, is_system_role)',
+					'id, user_id, role_id, status, previous_status, former_at, phone, job_title, department, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email, roles(id, name, description, is_system_role)',
 				)
 				.eq('organization_id', currentOrg.id)
 				.is('deleted_at', null),
@@ -356,10 +478,119 @@ export default function TeamPage() {
 			return;
 		}
 
+		if (payload.membership) {
+			setMembers((current) =>
+				current.map((member) =>
+					member.id === membershipId
+						? {
+								...member,
+								status: payload.membership?.status ?? 'former',
+								previous_status:
+									payload.membership?.previous_status ?? null,
+								former_at: payload.membership?.former_at ?? null,
+							}
+						: member,
+				),
+			);
+		}
+		toast.success('Member moved to former');
+	};
+
+	const updateMemberStatus = async (
+		membershipId: string,
+		action: TeamStatusAction,
+	) => {
+		const response = await fetch('/api/team/memberships', {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				action,
+				membershipId,
+			}),
+		});
+		const payload = (await response.json()) as MembershipActionResponse;
+
+		if (!response.ok || !payload.membership) {
+			toast.error(payload.error ?? 'Member status could not be updated');
+			return;
+		}
+
 		setMembers((current) =>
-			current.filter((member) => member.id !== membershipId),
+			current.map((member) =>
+				member.id === membershipId
+					? {
+							...member,
+							status: payload.membership?.status ?? member.status,
+							previous_status:
+								payload.membership?.previous_status ?? null,
+							former_at: payload.membership?.former_at ?? null,
+						}
+					: member,
+			),
 		);
-		toast.success('Member removed');
+		toast.success('Member status updated');
+	};
+
+	const openMemberDetails = (member: Member) => {
+		setEditingMember(member);
+		setMemberDetailsForm(teamDetailsToForm(member));
+	};
+
+	const updateMemberDetailsField = (
+		field: keyof TeamMemberDetailsInput,
+		value: string,
+	) => {
+		setMemberDetailsForm((current) => ({ ...current, [field]: value }));
+	};
+
+	const saveMemberDetails = async () => {
+		if (!editingMember) return;
+
+		setIsSavingMemberDetails(true);
+		const response = await fetch('/api/team/memberships', {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				action: 'update_details',
+				membershipId: editingMember.id,
+				details: memberDetailsForm,
+			}),
+		});
+		const payload = (await response.json()) as MembershipActionResponse;
+		setIsSavingMemberDetails(false);
+
+		if (!response.ok || !payload.membership) {
+			toast.error(payload.error ?? 'Member details could not be updated');
+			return;
+		}
+
+		setMembers((current) =>
+			current.map((member) =>
+				member.id === editingMember.id
+					? {
+							...member,
+							phone: payload.membership?.phone ?? null,
+							job_title: payload.membership?.job_title ?? null,
+							department: payload.membership?.department ?? null,
+							address_line1: payload.membership?.address_line1 ?? null,
+							address_line2: payload.membership?.address_line2 ?? null,
+							city: payload.membership?.city ?? null,
+							county: payload.membership?.county ?? null,
+							postcode: payload.membership?.postcode ?? null,
+							emergency_contact_name:
+								payload.membership?.emergency_contact_name ?? null,
+							emergency_contact_relationship:
+								payload.membership?.emergency_contact_relationship ?? null,
+							emergency_contact_phone:
+								payload.membership?.emergency_contact_phone ?? null,
+							emergency_contact_email:
+								payload.membership?.emergency_contact_email ?? null,
+						}
+					: member,
+			),
+		);
+		setEditingMember(null);
+		toast.success('Member details updated');
 	};
 
 	const createTeamInvite = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -616,8 +847,9 @@ export default function TeamPage() {
 						<TableHeader>
 							<TableRow>
 								<TableHead>Person</TableHead>
+								<TableHead>Status</TableHead>
 								<TableHead>Role</TableHead>
-								<TableHead className='w-[90px] text-right'>Actions</TableHead>
+								<TableHead className='w-[260px] text-right'>Actions</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -635,6 +867,18 @@ export default function TeamPage() {
 											<div className='text-xs text-muted-foreground'>
 												{member.profile?.email ?? member.user_id}
 											</div>
+											{(member.job_title || member.department || member.phone) && (
+												<div className='mt-1 text-xs text-muted-foreground'>
+													{[member.job_title, member.department, member.phone]
+														.filter(Boolean)
+														.join(' - ')}
+												</div>
+											)}
+										</TableCell>
+										<TableCell>
+											<Badge variant={memberStatusVariant(member.status)}>
+												{formatMemberStatus(member.status)}
+											</Badge>
 										</TableCell>
 										<TableCell>
 											<Select
@@ -655,38 +899,120 @@ export default function TeamPage() {
 												</SelectContent>
 											</Select>
 										</TableCell>
-										<TableCell className='text-right'>
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
+										<TableCell>
+											<div className='flex flex-wrap justify-end gap-2'>
+												<Button
+													type='button'
+													variant='outline'
+													size='sm'
+													onClick={() => openMemberDetails(member)}>
+													<Pencil className='mr-2 h-4 w-4' />
+													Details
+												</Button>
+												{member.status === 'former' ? (
 													<Button
 														type='button'
-														variant='ghost'
-														size='icon'
-														disabled={isCurrentUser}
-														aria-label='Remove member'>
-														<UserMinus className='h-4 w-4' />
+														variant='outline'
+														size='sm'
+														onClick={() =>
+															updateMemberStatus(member.id, 'restore_former')
+														}>
+														<RefreshCw className='mr-2 h-4 w-4' />
+														Restore
 													</Button>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>
-															Remove this team member?
-														</AlertDialogTitle>
-														<AlertDialogDescription>
-															This removes dashboard access for {label}, but keeps
-															their profile and activity history.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<AlertDialogAction
-															variant='destructive'
-															onClick={() => removeMember(member.id)}>
-															Remove member
-														</AlertDialogAction>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
+												) : (
+													<>
+														{member.status === 'on_leave' ? (
+															<Button
+																type='button'
+																variant='outline'
+																size='sm'
+																onClick={() =>
+																	updateMemberStatus(
+																		member.id,
+																		'return_from_leave',
+																	)
+																}>
+																<RefreshCw className='mr-2 h-4 w-4' />
+																Return
+															</Button>
+														) : member.status !== 'suspended' ? (
+															<Button
+																type='button'
+																variant='outline'
+																size='sm'
+																onClick={() =>
+																	updateMemberStatus(member.id, 'mark_on_leave')
+																}>
+																<Clock className='mr-2 h-4 w-4' />
+																Leave
+															</Button>
+														) : null}
+														{member.status === 'suspended' ? (
+															<Button
+																type='button'
+																variant='outline'
+																size='sm'
+																onClick={() =>
+																	updateMemberStatus(
+																		member.id,
+																		'return_from_suspension',
+																	)
+																}>
+																<RefreshCw className='mr-2 h-4 w-4' />
+																Unsuspend
+															</Button>
+														) : (
+															<Button
+																type='button'
+																variant='outline'
+																size='sm'
+																disabled={isCurrentUser}
+																onClick={() =>
+																	updateMemberStatus(
+																		member.id,
+																		'mark_suspended',
+																	)
+																}>
+																<ShieldAlert className='mr-2 h-4 w-4' />
+																Suspend
+															</Button>
+														)}
+														<AlertDialog>
+															<AlertDialogTrigger asChild>
+																<Button
+																	type='button'
+																	variant='ghost'
+																	size='sm'
+																	disabled={isCurrentUser}
+																	aria-label='Move member to former'>
+																	<UserMinus className='mr-2 h-4 w-4' />
+																	Former
+																</Button>
+															</AlertDialogTrigger>
+															<AlertDialogContent>
+																<AlertDialogHeader>
+																	<AlertDialogTitle>
+																		Move this team member to former?
+																	</AlertDialogTitle>
+																	<AlertDialogDescription>
+																		This removes dashboard access for {label}, but
+																		keeps their profile and activity history.
+																	</AlertDialogDescription>
+																</AlertDialogHeader>
+																<AlertDialogFooter>
+																	<AlertDialogCancel>Cancel</AlertDialogCancel>
+																	<AlertDialogAction
+																		variant='destructive'
+																		onClick={() => removeMember(member.id)}>
+																		Move to former
+																	</AlertDialogAction>
+																</AlertDialogFooter>
+															</AlertDialogContent>
+														</AlertDialog>
+													</>
+												)}
+											</div>
 										</TableCell>
 									</TableRow>
 								);
@@ -694,7 +1020,7 @@ export default function TeamPage() {
 							{members.length === 0 && (
 								<TableRow>
 									<TableCell
-										colSpan={3}
+										colSpan={4}
 										className='py-10 text-center text-sm text-muted-foreground'>
 										No team members found.
 									</TableCell>
@@ -704,6 +1030,54 @@ export default function TeamPage() {
 					</Table>
 				</CardContent>
 			</Card>
+
+			<Dialog open={Boolean(editingMember)} onOpenChange={(open) => !open && setEditingMember(null)}>
+				<DialogContent className='sm:max-w-2xl'>
+					<DialogHeader>
+						<DialogTitle>Edit team member details</DialogTitle>
+						<DialogDescription>
+							Add operational contact, role context, address, and emergency contact details.
+						</DialogDescription>
+					</DialogHeader>
+					<div className='grid gap-4 py-2 sm:grid-cols-2'>
+						<div className='space-y-2'>
+							<Label htmlFor='member-job-title'>Job title</Label>
+							<Input
+								id='member-job-title'
+								value={memberDetailsForm.jobTitle ?? ''}
+								onChange={(event) =>
+									updateMemberDetailsField('jobTitle', event.target.value)
+								}
+							/>
+						</div>
+						<div className='space-y-2'>
+							<Label htmlFor='member-department'>Department</Label>
+							<Input
+								id='member-department'
+								value={memberDetailsForm.department ?? ''}
+								onChange={(event) =>
+									updateMemberDetailsField('department', event.target.value)
+								}
+							/>
+						</div>
+					</div>
+					<PersonDetailsForm
+						form={memberDetailsForm as PersonDetailsInput}
+						onChange={(field, value) => updateMemberDetailsField(field, value)}
+					/>
+					<DialogFooter>
+						<Button type='button' variant='outline' onClick={() => setEditingMember(null)}>
+							Cancel
+						</Button>
+						<Button
+							type='button'
+							disabled={isSavingMemberDetails}
+							onClick={saveMemberDetails}>
+							{isSavingMemberDetails ? 'Saving...' : 'Save details'}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 
 			<Card>
 				<CardHeader>

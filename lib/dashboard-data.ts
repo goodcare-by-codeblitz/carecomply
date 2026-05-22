@@ -43,6 +43,7 @@ type QueryBuilder<T> = PromiseLike<QueryResponse<T>> & {
 	neq: (column: string, value: string) => QueryBuilder<T>;
 	gte: (column: string, value: string) => QueryBuilder<T>;
 	lte: (column: string, value: string) => QueryBuilder<T>;
+	is: (column: string, value: null) => QueryBuilder<T>;
 	not: (column: string, operator: string, value: string | null) => QueryBuilder<T>;
 	order: (
 		column: string,
@@ -131,6 +132,8 @@ export async function getOrgScopedDashboardData(
 		.from('documents')
 		.select('id, carers!inner(organization_id)', { count: 'exact', head: true })
 		.eq('carers.organization_id', currentOrg.id)
+		.neq('status', 'obsolete')
+		.is('superseded_by', null)
 		.not('expiry_date', 'is', null)
 		.gte('expiry_date', today)
 		.lte('expiry_date', thirtyDaysFromNow);
@@ -149,6 +152,8 @@ export async function getOrgScopedDashboardData(
 			'id, file_name, expiry_date, status, carers!inner(id, full_name, organization_id), document_types(name)',
 		)
 		.eq('carers.organization_id', currentOrg.id)
+		.neq('status', 'obsolete')
+		.is('superseded_by', null)
 		.not('expiry_date', 'is', null)
 		.gte('expiry_date', today)
 		.lte('expiry_date', thirtyDaysFromNow)

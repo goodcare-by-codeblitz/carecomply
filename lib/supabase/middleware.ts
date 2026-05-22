@@ -16,10 +16,12 @@ const PUBLIC_PREFIXES = [
   "/api/documents/review",
   "/api/onboarding",
   "/api/references/responded",
+  "/api/reminders/worker",
   "/api/settings",
   "/invite",
   "/onboarding",
 ];
+const API_PREFIX = "/api/";
 const ONBOARDING_PATHS = ["/select-org", "/create-org"];
 const DASHBOARD_SECTIONS = new Set([
   "dashboard",
@@ -62,6 +64,10 @@ function continueWithCurrentOrg(
   }
 
   return supabaseResponse;
+}
+
+function jsonUnauthorized() {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 }
 
 export async function updateSession(request: NextRequest) {
@@ -115,6 +121,7 @@ export async function updateSession(request: NextRequest) {
   const isOnboardingPath = ONBOARDING_PATHS.includes(pathname);
   const isPublicPath = PUBLIC_PATHS.includes(pathname);
   const isPublicPrefix = PUBLIC_PREFIXES.some((path) => pathname.startsWith(path));
+  const isApiPath = pathname.startsWith(API_PREFIX);
 
   if (
     !isPublicPath &&
@@ -122,6 +129,10 @@ export async function updateSession(request: NextRequest) {
     !userId &&
     !isAuthPath
   ) {
+    if (isApiPath) {
+      return jsonUnauthorized();
+    }
+
     // no user, potentially respond by redirecting the user to the login page
     return redirectWithCookies(request, supabaseResponse, "/auth/login");
   }
@@ -132,6 +143,10 @@ export async function updateSession(request: NextRequest) {
     isPublicPath ||
     isPublicPrefix
   ) {
+    return supabaseResponse;
+  }
+
+  if (isApiPath) {
     return supabaseResponse;
   }
 

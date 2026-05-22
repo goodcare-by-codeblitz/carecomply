@@ -3,6 +3,10 @@ import {
 	getInvitationLink,
 	getInviteExpiry,
 } from '@/lib/invitations';
+import {
+	canReceiveOperationalCommunication,
+	carerCommunicationBlockedMessage,
+} from '@/lib/carer-communications';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,6 +26,7 @@ type CarerWithOrg = {
 	id: string;
 	organization_id: string;
 	email: string;
+	status: string | null;
 	organizations: { name: string } | { name: string }[] | null;
 };
 
@@ -62,7 +67,7 @@ export async function POST(request: NextRequest) {
 
 		const { data: carerData, error: carerError } = await admin
 			.from('carers')
-			.select('id, organization_id, email, organizations(name)')
+			.select('id, organization_id, email, status, organizations(name)')
 			.eq('id', carerId)
 			.maybeSingle();
 
@@ -73,6 +78,17 @@ export async function POST(request: NextRequest) {
 		const carer = carerData as CarerWithOrg;
 		const organization = normalizeRelation(carer.organizations);
 		const organizationName = organization?.name || 'Your Care Agency';
+
+		if (!canReceiveOperationalCommunication(carer.status)) {
+			return NextResponse.json(
+				{
+					error: carerCommunicationBlockedMessage(carer.status),
+					emailSent: false,
+					skipped: true,
+				},
+				{ status: 409 },
+			);
+		}
 
 		let token = inviteToken ?? null;
 

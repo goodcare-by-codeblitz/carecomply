@@ -20,7 +20,7 @@ import {
 	type BillingPlan,
 } from '@/lib/billing';
 import { cn } from '@/lib/utils';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, Users } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
@@ -52,7 +52,7 @@ export function PricingPlans({
 	const handlePlanAction = async (planId: BillingPlan, isEnterprise?: boolean) => {
 		if (isEnterprise) {
 			window.location.href =
-				'mailto:hello@carecomply.co.uk?subject=Guardian%2B%20pricing';
+				'mailto:hello@carecomply.co.uk?subject=CareComply%20pricing';
 			return;
 		}
 
@@ -109,7 +109,7 @@ export function PricingPlans({
 				</Tabs>
 			</div>
 
-			<div className='grid gap-5 md:grid-cols-2 xl:grid-cols-4'>
+			<div className='grid gap-5 md:grid-cols-2'>
 				{PRICING_PLANS.map((plan) => {
 					const price =
 						interval === 'monthly' ? plan.monthlyPrice : plan.yearlyPrice;
@@ -155,19 +155,44 @@ export function PricingPlans({
 										{price === null ? plan.priceSuffix : 'plus applicable VAT'}
 									</p>
 								</div>
+								<div className='rounded-md border bg-muted/30 p-3 text-sm'>
+									<div className='flex items-center gap-2 font-medium'>
+										<Users className='h-4 w-4' />
+										{plan.includedActiveCarers} active carers included
+									</div>
+									<p className='mt-1 text-xs text-muted-foreground'>
+										GBP {plan.extraActiveCarerPrice} per extra active carer
+									</p>
+								</div>
+								<div className='flex flex-wrap gap-2'>
+									{plan.badges.map((badge) => (
+										<Badge key={badge} variant='outline'>
+											{badge}
+										</Badge>
+									))}
+								</div>
 								<p className='text-sm text-muted-foreground'>
 									{plan.description}
 								</p>
 							</CardHeader>
 							<CardContent className='flex flex-1 flex-col gap-5'>
-								<ul className='space-y-3 text-sm'>
-									{plan.features.map((feature) => (
-										<li key={feature} className='flex gap-2'>
-											<Check className='mt-0.5 h-4 w-4 shrink-0 text-foreground' />
-											<span>{feature}</span>
-										</li>
+								<div className='space-y-5'>
+									{plan.featureSections.map((section) => (
+										<div key={section.title}>
+											<p className='mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground'>
+												{section.title}
+											</p>
+											<ul className='space-y-2 text-sm'>
+												{section.items.map((feature) => (
+													<li key={feature} className='flex gap-2'>
+														<Check className='mt-0.5 h-4 w-4 shrink-0 text-foreground' />
+														<span>{feature}</span>
+													</li>
+												))}
+											</ul>
+										</div>
 									))}
-								</ul>
+								</div>
 								<Button
 									type='button'
 									className='mt-auto w-full'

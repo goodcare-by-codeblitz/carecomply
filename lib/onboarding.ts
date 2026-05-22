@@ -1,3 +1,7 @@
+import {
+	canReceiveOnboardingInvite,
+	carerCommunicationBlockedMessage,
+} from '@/lib/carer-communications';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export const CARER_DOCUMENTS_BUCKET = 'carer-documents';
@@ -19,6 +23,16 @@ type InvitationRow = {
 				full_name: string;
 				email: string;
 				phone: string | null;
+				address_line1: string | null;
+				address_line2: string | null;
+				city: string | null;
+				county: string | null;
+				postcode: string | null;
+				emergency_contact_name: string | null;
+				emergency_contact_relationship: string | null;
+				emergency_contact_phone: string | null;
+				emergency_contact_email: string | null;
+				status: string | null;
 				onboarding_progress: number | null;
 		  }
 		| {
@@ -27,6 +41,16 @@ type InvitationRow = {
 				full_name: string;
 				email: string;
 				phone: string | null;
+				address_line1: string | null;
+				address_line2: string | null;
+				city: string | null;
+				county: string | null;
+				postcode: string | null;
+				emergency_contact_name: string | null;
+				emergency_contact_relationship: string | null;
+				emergency_contact_phone: string | null;
+				emergency_contact_email: string | null;
+				status: string | null;
 				onboarding_progress: number | null;
 		  }[]
 		| null;
@@ -60,6 +84,16 @@ export type CarerOnboardingContext = {
 		full_name: string;
 		email: string;
 		phone: string | null;
+		address_line1: string | null;
+		address_line2: string | null;
+		city: string | null;
+		county: string | null;
+		postcode: string | null;
+		emergency_contact_name: string | null;
+		emergency_contact_relationship: string | null;
+		emergency_contact_phone: string | null;
+		emergency_contact_email: string | null;
+		status: string | null;
 		onboarding_progress: number | null;
 	};
 	organization: {
@@ -98,7 +132,7 @@ export async function getCarerOnboardingContext(
 	const { data, error } = await admin
 		.from('organization_invitations')
 		.select(
-			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, onboarding_progress), organizations(name, slug, required_work_references_count, required_character_references_count)',
+			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email, status, onboarding_progress), organizations(name, slug, required_work_references_count, required_character_references_count)',
 		)
 		.eq('token', token)
 		.maybeSingle();
@@ -140,6 +174,13 @@ export async function getCarerOnboardingContext(
 		);
 	}
 
+	if (!canReceiveOnboardingInvite(carer.status)) {
+		throw new OnboardingTokenError(
+			carerCommunicationBlockedMessage(carer.status),
+			409,
+		);
+	}
+
 	const organization = normalizeRelation(invitation.organizations);
 
 	return {
@@ -159,7 +200,7 @@ export async function updateCarerOnboardingProgress(
 	admin: SupabaseAdminClient,
 	carerId: string,
 	organizationId: string,
-	options: { preserveEmploymentStatus?: boolean } = {},
+	options: { preserveEmploymentStatus?: boolean; statusOverride?: string } = {},
 ) {
 	const [{ data: carer }, { data: requiredTypes }, { data: documents }, { data: orgData }, { data: refRows }] =
 		await Promise.all([
@@ -232,21 +273,24 @@ export async function updateCarerOnboardingProgress(
 			: allDocsDone && allRefsDone
 				? 'active'
 				: 'incomplete';
+	const nextStatus = options.statusOverride ?? status;
 	const shouldPreserveEmploymentStatus =
 		options.preserveEmploymentStatus !== false &&
-		(carer?.status === 'on_leave' || carer?.status === 'former');
+		(carer?.status === 'on_leave' ||
+			carer?.status === 'suspended' ||
+			carer?.status === 'former');
 
 	await admin
 		.from('carers')
 		.update({
 			onboarding_progress: progress,
-			...(shouldPreserveEmploymentStatus ? {} : { status }),
+			...(shouldPreserveEmploymentStatus ? {} : { status: nextStatus }),
 			updated_at: new Date().toISOString(),
 		})
 		.eq('id', carerId);
 
 	return {
 		progress,
-		status: shouldPreserveEmploymentStatus ? carer?.status : status,
+		status: shouldPreserveEmploymentStatus ? carer?.status : nextStatus,
 	};
 }

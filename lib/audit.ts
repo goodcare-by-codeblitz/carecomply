@@ -17,6 +17,8 @@ export type AuditCategory =
 export type AuditSeverity = 'info' | 'warning' | 'critical';
 
 export type AuditAction =
+	| 'audit.export_verified'
+	| 'audit.exported'
 	| 'billing.checkout_completed'
 	| 'billing.checkout_started'
 	| 'billing.invoice_payment_failed'
@@ -28,9 +30,13 @@ export type AuditAction =
 	| 'carer.marked_former'
 	| 'carer.marked_on_leave'
 	| 'carer.returned_from_leave'
+	| 'carer.restored'
+	| 'carer.suspended'
 	| 'carer.updated'
 	| 'document.approved'
 	| 'document.rejected'
+	| 'document.replaced'
+	| 'document.updated'
 	| 'document.uploaded'
 	| 'document.viewed'
 	| 'document_type.created'
@@ -49,9 +55,16 @@ export type AuditAction =
 	| 'reminder.deleted'
 	| 'reminder.toggled'
 	| 'reminder.updated'
+	| 'reminder.worker_configuration_missing'
 	| 'settings.updated'
 	| 'team.invited'
+	| 'team.member_marked_former'
+	| 'team.member_on_leave'
 	| 'team.member_removed'
+	| 'team.member_restored'
+	| 'team.member_returned'
+	| 'team.member_suspended'
+	| 'team.member_updated'
 	| 'team.role_changed'
 	| 'user.login_attempted'
 	| 'user.login_failed'
@@ -59,6 +72,7 @@ export type AuditAction =
 	| 'user.logout';
 
 export type EntityType =
+	| 'audit_export'
 	| 'billing'
 	| 'carer'
 	| 'document'
@@ -92,6 +106,16 @@ type AuditDefaults = {
 };
 
 const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
+	'audit.export_verified': {
+		category: 'governance',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
+	'audit.exported': {
+		category: 'governance',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
 	'billing.checkout_completed': {
 		category: 'billing',
 		severity: 'info',
@@ -122,6 +146,11 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 		severity: 'info',
 		cqcKeyQuestion: 'well_led',
 	},
+	'reminder.worker_configuration_missing': {
+		category: 'settings',
+		severity: 'warning',
+		cqcKeyQuestion: 'well_led',
+	},
 	'carer.marked_former': {
 		category: 'staffing',
 		severity: 'warning',
@@ -135,6 +164,16 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	'carer.returned_from_leave': {
 		category: 'staffing',
 		severity: 'info',
+		cqcKeyQuestion: 'safe',
+	},
+	'carer.restored': {
+		category: 'staffing',
+		severity: 'info',
+		cqcKeyQuestion: 'safe',
+	},
+	'carer.suspended': {
+		category: 'staffing',
+		severity: 'warning',
 		cqcKeyQuestion: 'safe',
 	},
 	'document.approved': {
@@ -212,9 +251,39 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 		severity: 'info',
 		cqcKeyQuestion: 'well_led',
 	},
+	'team.member_marked_former': {
+		category: 'staffing',
+		severity: 'warning',
+		cqcKeyQuestion: 'well_led',
+	},
+	'team.member_on_leave': {
+		category: 'staffing',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
 	'team.member_removed': {
 		category: 'staffing',
 		severity: 'warning',
+		cqcKeyQuestion: 'well_led',
+	},
+	'team.member_restored': {
+		category: 'staffing',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
+	'team.member_returned': {
+		category: 'staffing',
+		severity: 'info',
+		cqcKeyQuestion: 'well_led',
+	},
+	'team.member_suspended': {
+		category: 'staffing',
+		severity: 'warning',
+		cqcKeyQuestion: 'well_led',
+	},
+	'team.member_updated': {
+		category: 'staffing',
+		severity: 'info',
 		cqcKeyQuestion: 'well_led',
 	},
 	'team.role_changed': {

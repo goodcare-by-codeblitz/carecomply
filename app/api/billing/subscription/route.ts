@@ -2,11 +2,14 @@ import {
 	getPricingPlan,
 	getStripePriceEnvKey,
 	getStripePriceId,
+	normalizeBillingPlan,
 	type BillingInterval,
 	type BillingPlan,
+	type BillingStatus,
 } from '@/lib/billing';
 import { createUserAuditLog } from '@/lib/audit-server';
 import { PERMISSIONS } from '@/lib/permissions';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { getStripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
 
 	if (plan.isEnterprise) {
 		return NextResponse.json(
-			{ ok: false, message: 'Contact sales for Guardian+ pricing.' },
+			{ ok: false, message: 'Contact sales for custom pricing.' },
 			{ status: 400 },
 		);
 	}
@@ -95,7 +98,7 @@ export async function POST(request: Request) {
 
 	const { data: billing } = await supabase
 		.from('organization_billing')
-		.select('stripe_subscription_id')
+		.select('plan, status, stripe_subscription_id')
 		.eq('organization_id', organization.id)
 		.maybeSingle();
 
@@ -165,14 +168,31 @@ export async function POST(request: Request) {
 	}
 
 	if (item.price.id === priceId) {
+		const reconciliation = await applyImmediateUpgrade({
+			organizationId: organization.id,
+			currentPlan: billing.plan,
+			currentStatus: billing.status,
+			targetPlan: plan.id,
+			interval,
+			priceId,
+			subscription,
+		});
+
+		if (reconciliation.error) {
+			return reconciliation.error;
+		}
+
 		return NextResponse.json({
 			ok: true,
 			unchanged: true,
-			message: 'This subscription is already on the selected package.',
+			localAccessUpdated: reconciliation.localAccessUpdated,
+			message: reconciliation.localAccessUpdated
+				? 'Plan upgraded. Pro features are now available.'
+				: 'This subscription is already on the selected package.',
 		});
 	}
 
-	await stripe.subscriptions.update(subscription.id, {
+	const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
 		cancel_at_period_end: false,
 		proration_behavior: 'always_invoice',
 		payment_behavior: 'pending_if_incomplete',
@@ -190,6 +210,19 @@ export async function POST(request: Request) {
 			interval,
 		},
 	});
+	const immediateUpgrade = await applyImmediateUpgrade({
+		organizationId: organization.id,
+		currentPlan: billing.plan,
+		currentStatus: billing.status,
+		targetPlan: plan.id,
+		interval,
+		priceId,
+		subscription: updatedSubscription,
+	});
+
+	if (immediateUpgrade.error) {
+		return immediateUpgrade.error;
+	}
 
 	await createUserAuditLog({
 		action: 'billing.subscription_change_requested',
@@ -199,6 +232,7 @@ export async function POST(request: Request) {
 		entityName: `${plan.name} ${interval}`,
 		details: {
 			before: {
+				plan: normalizeBillingPlan(billing.plan),
 				stripe_price_id: item.price.id,
 				stripe_subscription_status: subscription.status,
 			},
@@ -208,16 +242,22 @@ export async function POST(request: Request) {
 				interval,
 				stripe_price_id: priceId,
 			},
-			stripe_subscription_id: subscription.id,
+			stripe_subscription_id: updatedSubscription.id,
+			local_access_updated: immediateUpgrade.localAccessUpdated,
 			permission_checked: PERMISSIONS.BILLING_MANAGE,
-			outcome: 'subscription_update_submitted_to_stripe',
+			outcome: immediateUpgrade.localAccessUpdated
+				? 'subscription_upgrade_applied_locally'
+				: 'subscription_update_submitted_to_stripe',
 		},
 		request,
 	});
 
 	return NextResponse.json({
 		ok: true,
-		message: 'Subscription change submitted. Billing will update after Stripe confirms it.',
+		localAccessUpdated: immediateUpgrade.localAccessUpdated,
+		message: immediateUpgrade.localAccessUpdated
+			? 'Plan upgraded. Pro features are now available.'
+			: 'Subscription change submitted. Billing will update after Stripe confirms it.',
 	});
 }
 
@@ -227,6 +267,104 @@ async function getStripePrice(stripe: Stripe, priceId: string) {
 	} catch {
 		return null;
 	}
+}
+
+function mapSubscriptionStatus(status: Stripe.Subscription.Status): BillingStatus {
+	switch (status) {
+		case 'trialing':
+			return 'trialing';
+		case 'active':
+			return 'active';
+		case 'past_due':
+			return 'past_due';
+		case 'canceled':
+		case 'unpaid':
+			return 'canceled';
+		default:
+			return 'past_due';
+	}
+}
+
+function mapLocalBillingStatus(status: string | null | undefined): BillingStatus {
+	switch (status) {
+		case 'trialing':
+		case 'active':
+		case 'past_due':
+		case 'canceled':
+			return status;
+		default:
+			return 'not_configured';
+	}
+}
+
+async function applyImmediateUpgrade({
+	organizationId,
+	currentPlan,
+	currentStatus,
+	targetPlan,
+	interval,
+	priceId,
+	subscription,
+}: {
+	organizationId: string;
+	currentPlan: string | null;
+	currentStatus: string | null;
+	targetPlan: BillingPlan;
+	interval: BillingInterval;
+	priceId: string;
+	subscription: Stripe.Subscription;
+}) {
+	const subscriptionStatus = mapSubscriptionStatus(subscription.status);
+	const currentBillingStatus = mapLocalBillingStatus(currentStatus);
+	const shouldApply =
+		normalizeBillingPlan(currentPlan) === 'starter' && targetPlan === 'pro';
+	const entitlementStatus =
+		subscriptionStatus === 'active' || subscriptionStatus === 'trialing'
+			? subscriptionStatus
+			: currentBillingStatus === 'active' || currentBillingStatus === 'trialing'
+				? currentBillingStatus
+				: subscriptionStatus;
+	const localAccessUpdated =
+		shouldApply &&
+		(entitlementStatus === 'active' || entitlementStatus === 'trialing');
+
+	if (!shouldApply) {
+		return { localAccessUpdated: false };
+	}
+
+	const admin = createAdminClient();
+	const { error: updateError } = await admin
+		.from('organization_billing')
+		.update({
+			plan: targetPlan,
+			interval,
+			status: entitlementStatus,
+			stripe_subscription_id: subscription.id,
+			stripe_price_id: priceId,
+			cancel_at_period_end: subscription.cancel_at_period_end,
+		})
+		.eq('organization_id', organizationId);
+
+	if (updateError) {
+		console.error('[billing-subscription] failed to apply upgrade locally', {
+			organizationId,
+			stripeSubscriptionId: subscription.id,
+			error: updateError,
+		});
+		return {
+			localAccessUpdated: false,
+			error: NextResponse.json(
+				{
+					ok: false,
+					message:
+						'Stripe accepted the upgrade, but billing could not be updated locally. Please refresh shortly.',
+				},
+				{ status: 500 },
+			),
+		};
+	}
+
+	return { localAccessUpdated };
 }
 
 async function resolveOrganization(

@@ -22,47 +22,43 @@ import {
 	getPricingPlan,
 	type BillingInterval,
 	type BillingPlan,
-	type BillingStatus,
+	type BillingPriceEstimate,
 	type OrganizationBillingSummary,
 } from '@/lib/billing';
-import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
+import { getCurrentOrgBySlug } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/client';
 import { useOrgStore } from '@/stores/auth-store';
 import { CreditCard, Loader2 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 type BillingRow = {
-	plan: BillingPlan;
-	interval: BillingInterval;
-	status: BillingStatus;
-	stripe_customer_id: string | null;
-	stripe_subscription_id: string | null;
-	stripe_price_id: string | null;
-	current_period_start: string | null;
-	current_period_end: string | null;
-	trial_start: string | null;
-	trial_end: string | null;
-	cancel_at_period_end: boolean | null;
+	billing?: OrganizationBillingSummary;
+	priceEstimate?: BillingPriceEstimate;
+	error?: string;
 };
 
 export default function BillingSettingsPage() {
 	const { orgSlug } = useParams<{ orgSlug: string }>();
 	const router = useRouter();
+	const searchParams = useSearchParams();
 	const storeOrg = useOrgStore((state) => state.getCurrentOrgFromSlug(orgSlug));
 	const [organization, setOrganization] = useState(storeOrg ?? null);
 	const [isResolvingOrg, setIsResolvingOrg] = useState(!storeOrg);
 	const [billing, setBilling] = useState<OrganizationBillingSummary>(
 		DEFAULT_BILLING_SUMMARY,
 	);
+	const [priceEstimate, setPriceEstimate] =
+		useState<BillingPriceEstimate | null>(null);
 	const [isLoadingBilling, setIsLoadingBilling] = useState(false);
 	const [isOpeningPortal, setIsOpeningPortal] = useState(false);
 	const [selectedBillingPlan, setSelectedBillingPlan] =
-		useState<BillingPlan>('carecore');
+		useState<BillingPlan>('starter');
 	const [selectedBillingInterval, setSelectedBillingInterval] =
 		useState<BillingInterval>('monthly');
 	const [isStartingCheckout, setIsStartingCheckout] = useState(false);
+	const [isConfirmingCheckout, setIsConfirmingCheckout] = useState(false);
 
 	useEffect(() => {
 		if (storeOrg) {
@@ -94,40 +90,23 @@ export default function BillingSettingsPage() {
 		if (!organization) return;
 
 		setIsLoadingBilling(true);
-		const supabase = createClient();
-		const { data, error } = await supabase
-			.from('organization_billing')
-			.select(
-				'plan, interval, status, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end, trial_start, trial_end, cancel_at_period_end',
-			)
-			.eq('organization_id', organization.id)
-			.maybeSingle();
+		const response = await fetch(
+			`/api/billing/summary?orgId=${encodeURIComponent(organization.id)}`,
+		);
+		const data = (await response.json().catch(() => ({}))) as BillingRow;
 
 		setIsLoadingBilling(false);
 
-		if (error) {
+		if (!response.ok) {
 			setBilling(DEFAULT_BILLING_SUMMARY);
-			if (!isMissingRelationError(error)) {
-				toast.error('Billing could not be loaded');
-			}
+			setPriceEstimate(null);
+			toast.error(data.error ?? 'Billing could not be loaded');
 			return;
 		}
 
-		if (!data) {
-			setBilling(DEFAULT_BILLING_SUMMARY);
-			return;
-		}
-
-		const row = data as BillingRow;
-		setBilling({
-			...row,
-			cancel_at_period_end: Boolean(row.cancel_at_period_end),
-			isConfigured: Boolean(
-				row.stripe_customer_id ||
-					row.stripe_subscription_id ||
-					row.stripe_price_id,
-			),
-		});
+		const row = data.billing ?? DEFAULT_BILLING_SUMMARY;
+		setBilling(row);
+		setPriceEstimate(data.priceEstimate ?? null);
 		setSelectedBillingPlan(row.plan);
 		setSelectedBillingInterval(row.interval);
 	}, [organization]);
@@ -135,6 +114,83 @@ export default function BillingSettingsPage() {
 	useEffect(() => {
 		loadBilling();
 	}, [loadBilling]);
+
+	useEffect(() => {
+		const billingParam = searchParams.get('billing');
+		const sessionId = searchParams.get('session_id');
+
+		if (billingParam === 'cancelled') {
+			router.replace(`/${orgSlug}/settings/billing`);
+			toast.info('Checkout was cancelled.');
+			return;
+		}
+
+		if (billingParam === 'success') {
+			if (organization && sessionId) {
+				setIsConfirmingCheckout(true);
+				fetch('/api/billing/checkout/sync', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({
+						orgId: organization.id,
+						orgSlug: organization.slug,
+						sessionId,
+					}),
+				})
+					.then(async (response) => {
+						const payload = (await response.json().catch(() => ({}))) as {
+							message?: string;
+						};
+
+						if (!response.ok) {
+							toast.info(
+								payload.message ??
+									'Checkout completed. Billing will update shortly.',
+							);
+							return;
+						}
+
+						toast.success(payload.message ?? 'Billing updated');
+						await loadBilling();
+					})
+					.catch(() => {
+						toast.info('Checkout completed. Billing will update shortly.');
+					})
+					.finally(() => {
+						setIsConfirmingCheckout(false);
+					});
+			} else {
+				setIsConfirmingCheckout(true);
+			}
+			router.replace(`/${orgSlug}/settings/billing`);
+		}
+	}, [loadBilling, organization, searchParams, orgSlug, router]);
+
+	useEffect(() => {
+		if (!isConfirmingCheckout) return;
+		if (billing.isConfigured && (billing.status === 'active' || billing.status === 'trialing')) {
+			setIsConfirmingCheckout(false);
+			toast.success('Subscription confirmed. Pro features are now available.');
+		}
+	}, [isConfirmingCheckout, billing.isConfigured, billing.status]);
+
+	useEffect(() => {
+		if (!isConfirmingCheckout) return;
+
+		const intervalId = setInterval(() => {
+			void loadBilling();
+		}, 2000);
+
+		const deadlineId = setTimeout(() => {
+			setIsConfirmingCheckout(false);
+			toast.info('Billing confirmation is taking longer than expected. It will update shortly.');
+		}, 30_000);
+
+		return () => {
+			clearInterval(intervalId);
+			clearTimeout(deadlineId);
+		};
+	}, [isConfirmingCheckout, loadBilling]);
 
 	const handleOpenBillingPortal = async () => {
 		if (!organization) return;
@@ -238,6 +294,12 @@ export default function BillingSettingsPage() {
 	const formattedPeriodEnd = formatBillingDate(periodEnd);
 	const formattedTrialStart = formatBillingDate(billing.trial_start);
 	const formattedTrialEnd = formatBillingDate(billing.trial_end);
+	const formatCurrency = (value: number) =>
+		new Intl.NumberFormat('en-GB', {
+			style: 'currency',
+			currency: 'GBP',
+			maximumFractionDigits: 0,
+		}).format(value);
 
 	if (isResolvingOrg) {
 		return (
@@ -256,6 +318,12 @@ export default function BillingSettingsPage() {
 				</CardDescription>
 			</CardHeader>
 			<CardContent className='space-y-8'>
+				{isConfirmingCheckout && (
+					<div className='flex items-center gap-2 rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground'>
+						<Loader2 className='h-4 w-4 animate-spin shrink-0' />
+						<span>Confirming your payment with Stripe. This usually takes a few seconds...</span>
+					</div>
+				)}
 				<div className='flex flex-col gap-4 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between'>
 					<div className='flex items-center gap-3'>
 						<div className='flex h-10 w-10 items-center justify-center rounded-md bg-muted'>
@@ -298,6 +366,60 @@ export default function BillingSettingsPage() {
 					<p className='text-xs text-muted-foreground'>
 						Stripe subscription: {billing.stripe_subscription_id}
 					</p>
+				)}
+				{priceEstimate && (
+					<div className='rounded-md border p-4'>
+						<div className='mb-4'>
+							<h3 className='text-sm font-medium'>Active carer pricing</h3>
+							<p className='text-sm text-muted-foreground'>
+								Estimated app total. Stripe currently bills the base package price only.
+							</p>
+						</div>
+						<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
+							<div className='rounded-md bg-muted/40 p-3'>
+								<p className='text-xs text-muted-foreground'>Active carers</p>
+								<p className='text-xl font-semibold'>
+									{priceEstimate.activeCarers}
+								</p>
+								<p className='text-xs text-muted-foreground'>
+									{priceEstimate.includedActiveCarers} included
+								</p>
+							</div>
+							<div className='rounded-md bg-muted/40 p-3'>
+								<p className='text-xs text-muted-foreground'>Extra carers</p>
+								<p className='text-xl font-semibold'>
+									{priceEstimate.extraActiveCarers}
+								</p>
+								<p className='text-xs text-muted-foreground'>
+									{formatCurrency(priceEstimate.extraActiveCarerPrice)} per extra active carer
+								</p>
+							</div>
+							<div className='rounded-md bg-muted/40 p-3'>
+								<p className='text-xs text-muted-foreground'>Monthly estimate</p>
+								<p className='text-xl font-semibold'>
+									{formatCurrency(priceEstimate.totalMonthlyAmount)}
+								</p>
+								<p className='text-xs text-muted-foreground'>
+									{formatCurrency(priceEstimate.baseMonthlyPrice)} base
+									{priceEstimate.monthlyOverageAmount > 0
+										? ` + ${formatCurrency(priceEstimate.monthlyOverageAmount)} overage`
+										: ''}
+								</p>
+							</div>
+							<div className='rounded-md bg-muted/40 p-3'>
+								<p className='text-xs text-muted-foreground'>Yearly estimate</p>
+								<p className='text-xl font-semibold'>
+									{formatCurrency(priceEstimate.totalYearlyAmount)}
+								</p>
+								<p className='text-xs text-muted-foreground'>
+									{formatCurrency(priceEstimate.baseYearlyPrice)} base
+									{priceEstimate.yearlyOverageAmount > 0
+										? ` + ${formatCurrency(priceEstimate.yearlyOverageAmount)} overage`
+										: ''}
+								</p>
+							</div>
+						</div>
+					</div>
 				)}
 				<div className='rounded-md border p-4'>
 					<div className='mb-4'>

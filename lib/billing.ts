@@ -3,7 +3,14 @@ import {
 	isMissingRelationError,
 } from '@/lib/orgs';
 
-export type BillingPlan = 'carecore' | 'safetrack' | 'complipro' | 'guardian_plus';
+export type BillingPlan = 'starter' | 'pro';
+
+export type LegacyBillingPlan =
+	| BillingPlan
+	| 'carecore'
+	| 'safetrack'
+	| 'complipro'
+	| 'guardian_plus';
 
 export type BillingInterval = 'monthly' | 'yearly';
 
@@ -29,6 +36,32 @@ export type OrganizationBillingSummary = {
 	isConfigured: boolean;
 };
 
+export type BillingEntitlements = {
+	plan: BillingPlan;
+	status: BillingStatus;
+	isPro: boolean;
+	advancedAudit: boolean;
+	customAutomations: boolean;
+	customRoles: boolean;
+	excelAuditExport: boolean;
+	fullAuditHistory: boolean;
+};
+
+export type BillingPriceEstimate = {
+	plan: BillingPlan;
+	interval: BillingInterval;
+	activeCarers: number;
+	includedActiveCarers: number;
+	extraActiveCarers: number;
+	extraActiveCarerPrice: number;
+	baseMonthlyPrice: number;
+	baseYearlyPrice: number;
+	monthlyOverageAmount: number;
+	yearlyOverageAmount: number;
+	totalMonthlyAmount: number;
+	totalYearlyAmount: number;
+};
+
 export type PricingPlan = {
 	id: BillingPlan;
 	name: string;
@@ -37,7 +70,14 @@ export type PricingPlan = {
 	monthlyPrice: number | null;
 	yearlyPrice: number | null;
 	priceSuffix: string;
+	includedActiveCarers: number;
+	extraActiveCarerPrice: number;
+	badges: string[];
 	features: string[];
+	featureSections: {
+		title: string;
+		items: string[];
+	}[];
 	highlight?: boolean;
 	isEnterprise?: boolean;
 	stripeMonthlyPriceEnvKey: string;
@@ -46,79 +86,127 @@ export type PricingPlan = {
 
 export const PRICING_PLANS: PricingPlan[] = [
 	{
-		id: 'carecore',
-		name: 'CareCore',
-		tagline: 'Start compliant',
-		description: 'Core compliance tracking for small care teams.',
+		id: 'starter',
+		name: 'Starter',
+		tagline: 'Run compliant onboarding',
+		description:
+			'Core onboarding, document collection, reminders, and reference review for care teams.',
 		monthlyPrice: 29,
 		yearlyPrice: 290,
 		priceSuffix: 'per month',
+		includedActiveCarers: 25,
+		extraActiveCarerPrice: 5,
+		badges: ['CSV export', '90-day audit history', 'Read-only files'],
 		features: [
-			'Carer compliance profiles',
-			'Document expiry tracking',
-			'Basic dashboard insights',
-			'Organization branding',
+			'Carer onboarding',
+			'Document uploads',
+			'Fixed expiry reminders',
+			'Manual reference requests',
+			'Reference review dashboard',
+			'Basic compliance tracking',
+			'Basic audit logs and CSV export',
+			'Read-only document storage',
 		],
-		stripeMonthlyPriceEnvKey: 'STRIPE_PRICE_CARECORE_MONTHLY',
-		stripeYearlyPriceEnvKey: 'STRIPE_PRICE_CARECORE_YEARLY',
+		featureSections: [
+			{
+				title: 'Included',
+				items: [
+					'Carer onboarding',
+					'Document uploads',
+					'Manual reference requests',
+					'Reference review dashboard',
+					'Basic compliance tracking',
+				],
+			},
+			{
+				title: 'Reminders and audit',
+				items: [
+					'Fixed expiry reminders: 30 days, 7 days, expiry day',
+					'Basic audit logs',
+					'CSV audit export',
+					'Recent audit history: last 90 days',
+					'Core activity filters: search and activity type',
+				],
+			},
+			{
+				title: 'Limits and evidence',
+				items: [
+					'Up to 25 active carers included',
+					'GBP 5 per extra active carer',
+					'Read-only document storage',
+				],
+			},
+		],
+		stripeMonthlyPriceEnvKey: 'STRIPE_PRICE_STARTER_MONTHLY',
+		stripeYearlyPriceEnvKey: 'STRIPE_PRICE_STARTER_YEARLY',
 	},
 	{
-		id: 'safetrack',
-		name: 'SafeTrack',
-		tagline: 'Stay ahead',
-		description: 'Reminders, document tracking, and team workflows.',
+		id: 'pro',
+		name: 'Pro',
+		tagline: 'Automate compliance operations',
+		description:
+			'Automation, escalation, advanced audit history, and custom controls for growing providers.',
 		monthlyPrice: 59,
 		yearlyPrice: 590,
 		priceSuffix: 'per month',
+		includedActiveCarers: 40,
+		extraActiveCarerPrice: 4,
+		badges: ['CQC-ready Excel export', 'Full audit history', 'Full evidence trail'],
 		features: [
-			'Everything in CareCore',
-			'Smart expiry reminders',
-			'Team roles and invitations',
-			'Review queues for documents',
+			'Everything in Starter',
+			'Automatic reference chasing',
+			'Scheduled reminder sequences',
+			'Escalation workflows',
+			'Overdue alerts',
+			'Compliance automations',
+			'Advanced audit history',
+			'Custom roles and permissions',
+			'Custom automations',
+			'Read-only document storage with full evidence trail',
+		],
+		featureSections: [
+			{
+				title: 'Included',
+				items: [
+					'Everything in Starter',
+					'Automatic reference chasing',
+					'Scheduled reminder sequences',
+					'Escalation workflows',
+					'Overdue alerts',
+					'Compliance automations',
+				],
+			},
+			{
+				title: 'Audit and evidence',
+				items: [
+					'Advanced CQC audit history',
+					'CSV and formatted Excel evidence export',
+					'Full audit history',
+					'CQC coverage summary: safe, effective, caring, responsive, well-led',
+					'Advanced filters: category, severity, CQC key question, date range',
+					'Full event metadata including source, IP, user agent, and raw details',
+				],
+			},
+			{
+				title: 'Limits and controls',
+				items: [
+					'Up to 40 active carers included',
+					'GBP 4 per extra active carer',
+					'Per-document-type reminder rules',
+					'Custom roles and permissions',
+					'Custom automations',
+					'Read-only document storage with full evidence trail',
+				],
+			},
 		],
 		highlight: true,
-		stripeMonthlyPriceEnvKey: 'STRIPE_PRICE_SAFETRACK_MONTHLY',
-		stripeYearlyPriceEnvKey: 'STRIPE_PRICE_SAFETRACK_YEARLY',
-	},
-	{
-		id: 'complipro',
-		name: 'CompliPro',
-		tagline: 'Scale operations',
-		description: 'Advanced compliance operations, reviews, audit visibility, and automations.',
-		monthlyPrice: 99,
-		yearlyPrice: 990,
-		priceSuffix: 'per month',
-		features: [
-			'Everything in SafeTrack',
-			'Automation management',
-			'Audit log visibility',
-			'Advanced compliance reporting',
-		],
-		stripeMonthlyPriceEnvKey: 'STRIPE_PRICE_COMPLIPRO_MONTHLY',
-		stripeYearlyPriceEnvKey: 'STRIPE_PRICE_COMPLIPRO_YEARLY',
-	},
-	{
-		id: 'guardian_plus',
-		name: 'Guardian+',
-		tagline: 'Enterprise support',
-		description: 'Custom governance, priority onboarding, and hands-on support.',
-		monthlyPrice: null,
-		yearlyPrice: null,
-		priceSuffix: 'custom pricing',
-		features: [
-			'Everything in CompliPro',
-			'Priority onboarding',
-			'Advanced governance support',
-			'Custom success planning',
-		],
-		isEnterprise: true,
-		stripeMonthlyPriceEnvKey: 'STRIPE_PRICE_GUARDIAN_PLUS_MONTHLY',
-		stripeYearlyPriceEnvKey: 'STRIPE_PRICE_GUARDIAN_PLUS_YEARLY',
+		stripeMonthlyPriceEnvKey: 'STRIPE_PRICE_PRO_MONTHLY',
+		stripeYearlyPriceEnvKey: 'STRIPE_PRICE_PRO_YEARLY',
 	},
 ];
 
 export const DEFAULT_BILLING_SUMMARY: OrganizationBillingSummary = {
-	plan: 'carecore',
+	plan: 'starter',
 	interval: 'monthly',
 	status: 'not_configured',
 	stripe_customer_id: null,
@@ -133,7 +221,112 @@ export const DEFAULT_BILLING_SUMMARY: OrganizationBillingSummary = {
 };
 
 export function getPricingPlan(planId: string) {
-	return PRICING_PLANS.find((plan) => plan.id === planId) ?? null;
+	if (!isKnownBillingPlan(planId)) return null;
+	const normalizedPlanId = normalizeBillingPlan(planId);
+	return PRICING_PLANS.find((plan) => plan.id === normalizedPlanId) ?? null;
+}
+
+export function isKnownBillingPlan(
+	plan: string | null | undefined,
+): plan is LegacyBillingPlan {
+	return (
+		plan === 'starter' ||
+		plan === 'pro' ||
+		plan === 'carecore' ||
+		plan === 'safetrack' ||
+		plan === 'complipro' ||
+		plan === 'guardian_plus'
+	);
+}
+
+export function normalizeBillingPlan(
+	plan: string | null | undefined,
+): BillingPlan {
+	switch (plan) {
+		case 'pro':
+		case 'complipro':
+		case 'guardian_plus':
+			return 'pro';
+		case 'starter':
+		case 'carecore':
+		case 'safetrack':
+		default:
+			return 'starter';
+	}
+}
+
+export function normalizeBillingStatus(
+	status: string | null | undefined,
+): BillingStatus {
+	switch (status) {
+		case 'trialing':
+		case 'active':
+		case 'past_due':
+		case 'canceled':
+			return status;
+		default:
+			return 'not_configured';
+	}
+}
+
+export function isEntitledBillingStatus(status: BillingStatus) {
+	return status === 'trialing' || status === 'active';
+}
+
+export function getBillingEntitlements(
+	plan: string | null | undefined,
+	status: string | null | undefined,
+): BillingEntitlements {
+	const normalizedPlan = normalizeBillingPlan(plan);
+	const normalizedStatus = normalizeBillingStatus(status);
+	const isPro =
+		normalizedPlan === 'pro' && isEntitledBillingStatus(normalizedStatus);
+
+	return {
+		plan: normalizedPlan,
+		status: normalizedStatus,
+		isPro,
+		advancedAudit: isPro,
+		customAutomations: isPro,
+		customRoles: isPro,
+		excelAuditExport: isPro,
+		fullAuditHistory: isPro,
+	};
+}
+
+export function calculateBillingPriceEstimate({
+	plan,
+	interval,
+	activeCarers,
+}: {
+	plan: string | null | undefined;
+	interval: BillingInterval;
+	activeCarers: number;
+}): BillingPriceEstimate {
+	const normalizedPlan = normalizeBillingPlan(plan);
+	const pricingPlan = getPricingPlan(normalizedPlan) ?? PRICING_PLANS[0];
+	const includedActiveCarers = pricingPlan.includedActiveCarers;
+	const extraActiveCarers = Math.max(0, activeCarers - includedActiveCarers);
+	const baseMonthlyPrice = pricingPlan.monthlyPrice ?? 0;
+	const baseYearlyPrice = pricingPlan.yearlyPrice ?? baseMonthlyPrice * 10;
+	const monthlyOverageAmount =
+		extraActiveCarers * pricingPlan.extraActiveCarerPrice;
+	const yearlyOverageAmount = monthlyOverageAmount * 12;
+
+	return {
+		plan: normalizedPlan,
+		interval,
+		activeCarers,
+		includedActiveCarers,
+		extraActiveCarers,
+		extraActiveCarerPrice: pricingPlan.extraActiveCarerPrice,
+		baseMonthlyPrice,
+		baseYearlyPrice,
+		monthlyOverageAmount,
+		yearlyOverageAmount,
+		totalMonthlyAmount: baseMonthlyPrice + monthlyOverageAmount,
+		totalYearlyAmount: baseYearlyPrice + yearlyOverageAmount,
+	};
 }
 
 export function getStripePriceEnvKey(

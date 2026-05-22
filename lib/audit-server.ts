@@ -203,7 +203,8 @@ async function resolveAuthAuditOrganizations(params: {
 		.from('organization_memberships')
 		.select('organizations(id, name, slug)')
 		.eq('user_id', userId)
-		.is('deleted_at', null);
+		.is('deleted_at', null)
+		.in('status', ['active', 'on_leave']);
 
 	if (error || !Array.isArray(data)) return [];
 

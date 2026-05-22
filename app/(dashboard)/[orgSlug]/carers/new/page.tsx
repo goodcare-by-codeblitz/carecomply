@@ -26,12 +26,22 @@ import {
 	isInvitationSetupMissing,
 } from '@/lib/invitations';
 import { logAction } from '@/lib/audit';
+import { PersonDetailsForm } from '@/components/carer-profile-card';
 
 export default function NewCarerPage() {
 	const [formData, setFormData] = useState<NewCarerInput>({
 		fullName: '',
 		email: '',
 		phone: '',
+		addressLine1: '',
+		addressLine2: '',
+		city: '',
+		county: '',
+		postcode: '',
+		emergencyContactName: '',
+		emergencyContactRelationship: '',
+		emergencyContactPhone: '',
+		emergencyContactEmail: '',
 	});
 	const [errors, setErrors] = useState<
 		Partial<Record<keyof NewCarerInput, string>>
@@ -76,11 +86,20 @@ export default function NewCarerPage() {
 	};
 
 	const validateField = (field: keyof NewCarerInput, value: string) => {
-		const result = newCarerSchema.shape[field].safeParse(value);
+		const result = newCarerSchema.safeParse({ ...formData, [field]: value });
 		if (!result.success) {
+			const issue = result.error.issues.find((err) => err.path[0] === field);
+			if (!issue) {
+				setErrors((prev) => {
+					const newErrors = { ...prev };
+					delete newErrors[field];
+					return newErrors;
+				});
+				return;
+			}
 			setErrors((prev) => ({
 				...prev,
-				[field]: result.error.issues[0].message,
+				[field]: issue.message,
 			}));
 		} else {
 			setErrors((prev) => {
@@ -142,6 +161,16 @@ export default function NewCarerPage() {
 					full_name: formData.fullName,
 					email: formData.email,
 					phone: formData.phone || null,
+					address_line1: formData.addressLine1 || null,
+					address_line2: formData.addressLine2 || null,
+					city: formData.city || null,
+					county: formData.county || null,
+					postcode: formData.postcode || null,
+					emergency_contact_name: formData.emergencyContactName || null,
+					emergency_contact_relationship:
+						formData.emergencyContactRelationship || null,
+					emergency_contact_phone: formData.emergencyContactPhone || null,
+					emergency_contact_email: formData.emergencyContactEmail || null,
 					status: 'pending',
 					onboarding_progress: 0,
 				})
@@ -199,6 +228,19 @@ export default function NewCarerPage() {
 				details: {
 					email: formData.email.trim().toLowerCase(),
 					phone: formData.phone || null,
+					address: {
+						line1: formData.addressLine1 || null,
+						line2: formData.addressLine2 || null,
+						city: formData.city || null,
+						county: formData.county || null,
+						postcode: formData.postcode || null,
+					},
+					emergency_contact: {
+						name: formData.emergencyContactName || null,
+						relationship: formData.emergencyContactRelationship || null,
+						phone: formData.emergencyContactPhone || null,
+						email: formData.emergencyContactEmail || null,
+					},
 					status: 'pending',
 					onboarding_progress: 0,
 					outcome: 'carer_profile_created',
@@ -360,7 +402,20 @@ export default function NewCarerPage() {
 								className='flex-1'
 								onClick={() => {
 									setCreatedCarer(null);
-									setFormData({ fullName: '', email: '', phone: '' });
+									setFormData({
+										fullName: '',
+										email: '',
+										phone: '',
+										addressLine1: '',
+										addressLine2: '',
+										city: '',
+										county: '',
+										postcode: '',
+										emergencyContactName: '',
+										emergencyContactRelationship: '',
+										emergencyContactPhone: '',
+										emergencyContactEmail: '',
+									});
 								}}>
 								Add Another Carer
 							</Button>
@@ -435,6 +490,16 @@ export default function NewCarerPage() {
 							/>
 							{errors.phone && (
 								<p className='text-xs text-destructive'>{errors.phone}</p>
+							)}
+						</div>
+
+						<div className='rounded-md border p-4'>
+							<h2 className='mb-3 text-sm font-medium'>Address and emergency contact</h2>
+							<PersonDetailsForm form={formData} onChange={handleChange} />
+							{errors.emergencyContactPhone && (
+								<p className='mt-2 text-xs text-destructive'>
+									{errors.emergencyContactPhone}
+								</p>
 							)}
 						</div>
 

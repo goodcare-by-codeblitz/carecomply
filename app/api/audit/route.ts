@@ -1,4 +1,13 @@
 import { createAuditLog } from '@/lib/audit-server';
+import { getBillingEntitlements } from '@/lib/billing';
+import {
+	canonicalJson,
+	createManifestHash,
+	encodeManifest,
+	sha256Hex,
+	signManifest,
+	type AuditExportManifest,
+} from '@/lib/audit-export-signing';
 import {
 	type AuditAction,
 	type AuditCategory,
@@ -9,6 +18,7 @@ import {
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import ExcelJS from 'exceljs';
+import { randomUUID } from 'crypto';
 import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -35,6 +45,20 @@ const FILTERABLE_COLUMNS = [
 	'severity',
 	'user_email',
 ] as const;
+
+const STARTER_ENTITY_TYPES = [
+	'carer',
+	'document',
+	'document_type',
+	'email',
+	'invitation',
+	'reference',
+	'reminder',
+	'team_member',
+] as const;
+
+const STARTER_RETENTION_DAYS = 90;
+const TENANT_HIDDEN_AUDIT_ACTIONS = ['reminder.worker_configuration_missing'];
 
 export async function GET(request: NextRequest) {
 	const supabase = await createClient();
@@ -70,30 +94,68 @@ export async function GET(request: NextRequest) {
 		);
 	}
 
+	const admin = createAdminClient();
+	const billing = await getAuditBilling(admin, organization.id);
+	const hasPro = billing.isPro;
+	const capabilities = getAuditCapabilities(hasPro);
+
 	const page = Math.max(1, Number(searchParams.get('page') ?? '1') || 1);
 	const pageSize = Math.min(
-		200,
+		hasPro ? 200 : 20,
 		Math.max(1, Number(searchParams.get('pageSize') ?? '20') || 20),
 	);
-	const exportMode = searchParams.get('export') === 'xlsx';
-	const admin = createAdminClient();
+	const exportMode = searchParams.get('export');
+
+	if (exportMode === 'xlsx' && !hasPro) {
+		return NextResponse.json(
+			{ error: 'Excel CQC evidence export is available on Pro.' },
+			{ status: 403 },
+		);
+	}
+
+	const warnings: string[] = [];
 	let query = admin
 		.from('audit_logs')
 		.select('*', { count: 'exact' })
 		.eq('organization_id', organization.id)
+		.not('action', 'in', `(${TENANT_HIDDEN_AUDIT_ACTIONS.join(',')})`)
 		.order('created_at', { ascending: false });
 
-	for (const column of FILTERABLE_COLUMNS) {
+	const filterableColumns = hasPro
+		? FILTERABLE_COLUMNS
+		: (['entity_type'] as const);
+	for (const column of filterableColumns) {
 		const value = searchParams.get(column);
 		if (value && value !== 'all') {
 			query = query.eq(column, value);
 		}
 	}
 
+	if (!hasPro) {
+		query = query
+			.in('entity_type', [...STARTER_ENTITY_TYPES])
+			.gte(
+				'created_at',
+				new Date(
+					Date.now() - STARTER_RETENTION_DAYS * 24 * 60 * 60 * 1000,
+				).toISOString(),
+			);
+
+		for (const column of ['category', 'severity', 'cqc_key_question'] as const) {
+			if (searchParams.get(column) && searchParams.get(column) !== 'all') {
+				warnings.push(`${column} is available on Pro and was ignored.`);
+			}
+		}
+	}
+
 	const dateFrom = searchParams.get('dateFrom');
 	const dateTo = searchParams.get('dateTo');
-	if (dateFrom) query = query.gte('created_at', dateFrom);
-	if (dateTo) query = query.lte('created_at', dateTo);
+	if (hasPro) {
+		if (dateFrom) query = query.gte('created_at', dateFrom);
+		if (dateTo) query = query.lte('created_at', dateTo);
+	} else if (dateFrom || dateTo) {
+		warnings.push('Date range filters are available on Pro and were ignored.');
+	}
 
 	if (!exportMode) {
 		query = query.range((page - 1) * pageSize, page * pageSize - 1);
@@ -110,22 +172,40 @@ export async function GET(request: NextRequest) {
 
 	const logs = data ?? [];
 
-	if (exportMode) {
-		const workbookBuffer = await buildAuditExportWorkbook(logs, {
-			orgName: organization.name,
-			orgSlug: organization.slug,
+	if (exportMode === 'csv') {
+		const signedExport = await buildSignedAuditCsv({
+			admin,
+			logs,
+			hasPro,
+			organization,
+			user,
+			filters: exportFilters(searchParams),
+			request,
+		});
+		if (!signedExport.ok) return signedExport.response;
+
+		return new NextResponse(signedExport.body, {
+			headers: {
+				'Content-Type': 'text/csv; charset=utf-8',
+				'Content-Disposition': `attachment; filename="carecomply-audit-${organization.slug}.csv"`,
+			},
+		});
+	}
+
+	if (exportMode === 'xlsx') {
+		const signedExport = await buildSignedAuditWorkbook({
+			admin,
+			logs,
+			organization,
+			user,
+			filters: exportFilters(searchParams),
 			dateFrom,
 			dateTo,
-			generatedAt: new Date(),
-			filters: Object.fromEntries(
-				FILTERABLE_COLUMNS.map((column) => [
-					column,
-					searchParams.get(column) ?? 'all',
-				]),
-			),
+			request,
 		});
+		if (!signedExport.ok) return signedExport.response;
 
-		return new NextResponse(workbookBuffer, {
+		return new NextResponse(signedExport.body, {
 			headers: {
 				'Content-Type':
 					'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -138,7 +218,319 @@ export async function GET(request: NextRequest) {
 		logs,
 		count: count ?? 0,
 		totalPages: Math.max(1, Math.ceil((count ?? 0) / pageSize)),
+		billing: {
+			plan: billing.plan,
+			status: billing.status,
+			isPro: hasPro,
+		},
+		capabilities,
+		warnings,
 	});
+}
+
+function exportFilters(searchParams: URLSearchParams) {
+	return Object.fromEntries(
+		FILTERABLE_COLUMNS.map((column) => [
+			column,
+			searchParams.get(column) ?? 'all',
+		]),
+	);
+}
+
+type ExportOrganization = {
+	id: string;
+	name: string;
+	slug: string;
+};
+
+type SignedExportParams = {
+	admin: ReturnType<typeof createAdminClient>;
+	logs: Record<string, unknown>[];
+	organization: ExportOrganization;
+	user: { id: string; email?: string | null };
+	filters: Record<string, string>;
+	request: Request;
+};
+
+async function buildSignedAuditCsv({
+	admin,
+	logs,
+	hasPro,
+	organization,
+	user,
+	filters,
+	request,
+}: SignedExportParams & { hasPro: boolean }) {
+	const signingSecret = process.env.AUDIT_EXPORT_SIGNING_SECRET;
+	if (!signingSecret) {
+		return {
+			ok: false as const,
+			response: NextResponse.json(
+				{ error: 'Audit export signing is not configured.' },
+				{ status: 503 },
+			),
+		};
+	}
+
+	const exportId = randomUUID();
+	const generatedAt = new Date().toISOString();
+	const csvBody = buildAuditCsv(logs, hasPro);
+	const manifest = createAuditExportManifest({
+		exportId,
+		organization,
+		format: 'csv',
+		generatedAt,
+		filters,
+		logs,
+		rowsHash: sha256Hex(csvBody),
+	});
+	const manifestHash = createManifestHash(manifest);
+	const signature = signManifest(signingSecret, manifestHash);
+	const body = buildSignedCsvBody({
+		csvBody,
+		manifest,
+		manifestHash,
+		signature,
+	});
+	const fileHash = sha256Hex(body);
+
+	await recordAuditExport({
+		admin,
+		manifest,
+		user,
+		fileHash,
+		manifestHash,
+		signature,
+		filters,
+	});
+	await logAuditExport({ manifest, fileHash, manifestHash, signature, user, request });
+
+	return { ok: true as const, body };
+}
+
+async function buildSignedAuditWorkbook({
+	admin,
+	logs,
+	organization,
+	user,
+	filters,
+	dateFrom,
+	dateTo,
+	request,
+}: SignedExportParams & { dateFrom: string | null; dateTo: string | null }) {
+	const signingSecret = process.env.AUDIT_EXPORT_SIGNING_SECRET;
+	if (!signingSecret) {
+		return {
+			ok: false as const,
+			response: NextResponse.json(
+				{ error: 'Audit export signing is not configured.' },
+				{ status: 503 },
+			),
+		};
+	}
+
+	const exportId = randomUUID();
+	const generatedAt = new Date().toISOString();
+	const manifest = createAuditExportManifest({
+		exportId,
+		organization,
+		format: 'xlsx',
+		generatedAt,
+		filters,
+		logs,
+		rowsHash: sha256Hex(canonicalJson(logs)),
+	});
+	const manifestHash = createManifestHash(manifest);
+	const signature = signManifest(signingSecret, manifestHash);
+	const workbookBuffer = await buildAuditExportWorkbook(
+		logs,
+		{
+			orgName: organization.name,
+			orgSlug: organization.slug,
+			dateFrom,
+			dateTo,
+			generatedAt: new Date(generatedAt),
+			filters,
+		},
+		{ manifest, manifestHash, signature },
+	);
+	const body = Buffer.from(workbookBuffer);
+	const fileHash = sha256Hex(body);
+
+	await recordAuditExport({
+		admin,
+		manifest,
+		user,
+		fileHash,
+		manifestHash,
+		signature,
+		filters,
+	});
+	await logAuditExport({ manifest, fileHash, manifestHash, signature, user, request });
+
+	return { ok: true as const, body };
+}
+
+function createAuditExportManifest({
+	exportId,
+	organization,
+	format,
+	generatedAt,
+	filters,
+	logs,
+	rowsHash,
+}: {
+	exportId: string;
+	organization: ExportOrganization;
+	format: 'csv' | 'xlsx';
+	generatedAt: string;
+	filters: Record<string, string>;
+	logs: Record<string, unknown>[];
+	rowsHash: string;
+}): AuditExportManifest {
+	return {
+		exportId,
+		organizationId: organization.id,
+		organizationSlug: organization.slug,
+		format,
+		generatedAt,
+		rowCount: logs.length,
+		filters,
+		rowsHash,
+	};
+}
+
+function buildSignedCsvBody({
+	csvBody,
+	manifest,
+	manifestHash,
+	signature,
+}: {
+	csvBody: string;
+	manifest: AuditExportManifest;
+	manifestHash: string;
+	signature: string;
+}) {
+	return [
+		'# CareComply Tamper-Evident Audit Export',
+		`# export_id,${manifest.exportId}`,
+		`# format,${manifest.format}`,
+		`# generated_at,${manifest.generatedAt}`,
+		`# organization_slug,${manifest.organizationSlug}`,
+		`# row_count,${manifest.rowCount}`,
+		`# rows_hash,${manifest.rowsHash}`,
+		`# manifest_hash,${manifestHash}`,
+		`# signature,${signature}`,
+		`# manifest_json,${encodeManifest(manifest)}`,
+		'# Verify this file in CareComply. Any byte-level edit will fail verification.',
+		'',
+		csvBody,
+	].join('\n');
+}
+
+async function recordAuditExport({
+	admin,
+	manifest,
+	user,
+	fileHash,
+	manifestHash,
+	signature,
+	filters,
+}: {
+	admin: ReturnType<typeof createAdminClient>;
+	manifest: AuditExportManifest;
+	user: { id: string; email?: string | null };
+	fileHash: string;
+	manifestHash: string;
+	signature: string;
+	filters: Record<string, string>;
+}) {
+	const { error } = await admin.from('audit_exports').insert({
+		id: manifest.exportId,
+		organization_id: manifest.organizationId,
+		user_id: user.id,
+		user_email: user.email ?? null,
+		format: manifest.format,
+		filters,
+		row_count: manifest.rowCount,
+		generated_at: manifest.generatedAt,
+		rows_hash: manifest.rowsHash,
+		file_hash: fileHash,
+		manifest_hash: manifestHash,
+		signature,
+	});
+
+	if (error) {
+		console.error('Failed to record audit export:', error);
+		throw error;
+	}
+}
+
+async function logAuditExport({
+	manifest,
+	fileHash,
+	manifestHash,
+	signature,
+	user,
+	request,
+}: {
+	manifest: AuditExportManifest;
+	fileHash: string;
+	manifestHash: string;
+	signature: string;
+	user: { id: string; email?: string | null };
+	request: Request;
+}) {
+	await createAuditLog({
+		action: 'audit.exported',
+		entityType: 'audit_export',
+		organizationId: manifest.organizationId,
+		entityId: manifest.exportId,
+		entityName: `${manifest.format.toUpperCase()} audit export`,
+		userId: user.id,
+		userEmail: user.email ?? null,
+		details: {
+			export_id: manifest.exportId,
+			format: manifest.format,
+			row_count: manifest.rowCount,
+			rows_hash: manifest.rowsHash,
+			file_hash: fileHash,
+			manifest_hash: manifestHash,
+			signature,
+			outcome: 'tamper_evident_audit_export_created',
+		},
+		request,
+	});
+}
+
+function getAuditCapabilities(hasPro: boolean) {
+	return {
+		advancedAudit: hasPro,
+		csvExport: true,
+		excelExport: hasPro,
+		cqcFilters: hasPro,
+		fullDetails: hasPro,
+		maxRetentionDays: hasPro ? null : STARTER_RETENTION_DAYS,
+	};
+}
+
+async function getAuditBilling(
+	admin: ReturnType<typeof createAdminClient>,
+	organizationId: string,
+) {
+	const { data } = await admin
+		.from('organization_billing')
+		.select('plan, status')
+		.eq('organization_id', organizationId)
+		.maybeSingle();
+
+	const entitlements = getBillingEntitlements(data?.plan, data?.status);
+
+	return {
+		plan: entitlements.plan,
+		status: entitlements.status,
+		isPro: entitlements.advancedAudit,
+	};
 }
 
 export async function POST(request: NextRequest) {
@@ -231,6 +623,11 @@ type ExportContext = {
 async function buildAuditExportWorkbook(
 	logs: Record<string, unknown>[],
 	context: ExportContext,
+	verification?: {
+		manifest: AuditExportManifest;
+		manifestHash: string;
+		signature: string;
+	},
 ) {
 	const workbook = new ExcelJS.Workbook();
 	workbook.creator = 'CareComply';
@@ -240,8 +637,57 @@ async function buildAuditExportWorkbook(
 	buildOverviewSheet(workbook, logs, context);
 	buildSummarySheet(workbook, logs);
 	buildAuditLogsSheet(workbook, logs);
+	if (verification) buildVerificationSheet(workbook, verification);
+
+	await Promise.all(
+		workbook.worksheets.map((sheet) =>
+			sheet.protect(process.env.AUDIT_EXPORT_SIGNING_SECRET ?? randomUUID(), {
+				selectLockedCells: true,
+				selectUnlockedCells: true,
+			}),
+		),
+	);
 
 	return workbook.xlsx.writeBuffer();
+}
+
+function buildVerificationSheet(
+	workbook: ExcelJS.Workbook,
+	verification: {
+		manifest: AuditExportManifest;
+		manifestHash: string;
+		signature: string;
+	},
+) {
+	const sheet = workbook.addWorksheet('Verification', {
+		views: [{ showGridLines: false }],
+	});
+	sheet.columns = [{ width: 28 }, { width: 90 }];
+	sheet.addRow(['CareComply Tamper-Evident Export']);
+	sheet.addRow(['Export ID', verification.manifest.exportId]);
+	sheet.addRow(['Format', verification.manifest.format]);
+	sheet.addRow(['Generated At', verification.manifest.generatedAt]);
+	sheet.addRow(['Organization', verification.manifest.organizationSlug]);
+	sheet.addRow(['Row Count', verification.manifest.rowCount]);
+	sheet.addRow(['Rows Hash', verification.manifest.rowsHash]);
+	sheet.addRow(['Manifest Hash', verification.manifestHash]);
+	sheet.addRow(['Signature', verification.signature]);
+	sheet.addRow(['Manifest JSON', encodeManifest(verification.manifest)]);
+	sheet.addRow([
+		'Verification',
+		'Upload this file in CareComply using Verify export. If any byte has changed since generation, verification will fail.',
+	]);
+	styleTitleCell(sheet.getCell('A1'));
+	sheet.getRow(1).height = 24;
+	sheet.eachRow((row, rowNumber) => {
+		row.eachCell((cell) => {
+			cell.alignment = { vertical: 'middle', wrapText: true };
+			cell.border = border('FFE5E7EB');
+			if (rowNumber > 1 && cell.address.startsWith('A')) {
+				styleLabelCell(cell);
+			}
+		});
+	});
 }
 
 function buildOverviewSheet(
@@ -413,6 +859,67 @@ function readableFilters(filters: Record<string, string>) {
 		.filter(([, value]) => value && value !== 'all')
 		.map(([key, value]) => `${labelValue(key)}: ${labelValue(value)}`)
 		.join('\n') || 'None';
+}
+
+function buildAuditCsv(logs: Record<string, unknown>[], hasPro: boolean) {
+	const headers = hasPro
+		? [
+				'Created At',
+				'User',
+				'Action',
+				'Entity Type',
+				'Entity Name',
+				'Category',
+				'Severity',
+				'CQC Key Question',
+				'Source',
+				'IP Address',
+				'Details Summary',
+			]
+		: [
+				'Created At',
+				'User',
+				'Action',
+				'Entity Type',
+				'Entity Name',
+				'Details Summary',
+			];
+
+	const rows = logs.map((log) => {
+		const basic = [
+			formatExportDate(stringValue(log.created_at)),
+			stringValue(log.user_email) || 'System',
+			labelValue(stringValue(log.action)),
+			labelValue(stringValue(log.entity_type)),
+			stringValue(log.entity_name),
+			summarizeDetails(log.details),
+		];
+
+		if (!hasPro) return basic;
+
+		return [
+			basic[0],
+			basic[1],
+			basic[2],
+			basic[3],
+			basic[4],
+			labelValue(stringValue(log.category)),
+			labelValue(stringValue(log.severity)),
+			labelValue(stringValue(log.cqc_key_question)),
+			labelValue(stringValue(log.source)),
+			stringValue(log.ip_address),
+			basic[5],
+		];
+	});
+
+	return [headers, ...rows]
+		.map((row) => row.map(csvCell).join(','))
+		.join('\n');
+}
+
+function csvCell(value: unknown) {
+	const text = value == null ? '' : String(value);
+	return `"${text.replaceAll('"', '""')}"`;
 }
 
 function styleTitleCell(cell: ExcelJS.Cell) {

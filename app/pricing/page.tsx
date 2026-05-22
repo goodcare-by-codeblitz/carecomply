@@ -36,8 +36,9 @@ export default function PricingPage() {
 						Choose the compliance plan that fits your care team.
 					</h1>
 					<p className='mx-auto mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground'>
-						Start with core document tracking, then scale into reminders,
-						reviews, audit visibility, automations, and enterprise support.
+						Start with onboarding, uploads, reminders, and reference review,
+						then move to Pro for automation, escalation, advanced audit, and
+						custom controls.
 					</p>
 				</div>
 
