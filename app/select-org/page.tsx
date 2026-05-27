@@ -1,139 +1,111 @@
-import { Button } from '@/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import { getUserOrganizationsResult } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/server';
-import { Building2 } from 'lucide-react';
+import { Building2, ArrowRight } from 'lucide-react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
+import { TopNav } from '@/components/marketing/nav';
+import { Container } from '@/components/marketing/ui/container';
 
 async function selectOrganization(formData: FormData) {
-	'use server';
+  'use server';
 
-	const slug = formData.get('slug');
-	if (typeof slug !== 'string' || !slug) {
-		redirect('/select-org');
-	}
+  const slug = formData.get('slug');
+  if (typeof slug !== 'string' || !slug) {
+    redirect('/select-org');
+  }
 
-	const supabase = await createClient();
-	const {
-		data: { user },
-	} = await supabase.auth.getUser();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) { redirect('/auth/login'); }
 
-	if (!user) {
-		redirect('/auth/login');
-	}
+  const organizationsResult = await getUserOrganizationsResult(supabase, user.id);
+  if (!organizationsResult.ok) { redirect('/select-org?error=org_lookup_failed'); }
 
-	const organizationsResult = await getUserOrganizationsResult(supabase, user.id);
+  const organizations = organizationsResult.organizations;
+  const organization = organizations.find((org) => org.slug === slug);
+  if (!organization) { redirect('/select-org'); }
 
-	if (!organizationsResult.ok) {
-		redirect('/select-org?error=org_lookup_failed');
-	}
+  const cookieStore = await cookies();
+  cookieStore.set('current_org_slug', organization.slug, {
+    path: '/',
+    sameSite: 'lax',
+    httpOnly: true,
+  });
 
-	const organizations = organizationsResult.organizations;
-	const organization = organizations.find((org) => org.slug === slug);
-
-	if (!organization) {
-		redirect('/select-org');
-	}
-
-	const cookieStore = await cookies();
-	cookieStore.set('current_org_slug', organization.slug, {
-		path: '/',
-		sameSite: 'lax',
-		httpOnly: true,
-	});
-
-	redirect(`/${organization.slug}/dashboard`);
+  redirect(`/${organization.slug}/dashboard`);
 }
 
 async function SelectOrgContent() {
-	const supabase = await createClient();
-	const {
-		data: { user },
-	} = await supabase.auth.getUser();
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) { redirect('/auth/login'); }
 
-	if (!user) {
-		redirect('/auth/login');
-	}
+  const organizationsResult = await getUserOrganizationsResult(supabase, user.id);
 
-	const organizationsResult = await getUserOrganizationsResult(supabase, user.id);
+  if (!organizationsResult.ok) {
+    return (
+      <>
+        <TopNav />
+        <div className="min-h-[calc(100vh-64px)] bg-surface-page flex flex-col items-center justify-center py-12">
+          <Container className="w-full">
+            <div className="w-full max-w-lg">
+              <div className="rounded-2xl border border-line bg-white p-8 shadow-card">
+                <h1 className="text-[24px] font-semibold tracking-ultratight text-ink">Organizations unavailable</h1>
+                <p className="mt-2 text-[14.5px] text-slate-600">Your organizations could not be loaded. Please refresh and try again.</p>
+              </div>
+            </div>
+          </Container>
+        </div>
+      </>
+    );
+  }
 
-	if (!organizationsResult.ok) {
-		return (
-			<main className='min-h-screen bg-background flex items-center justify-center p-6'>
-				<Card className='w-full max-w-lg'>
-					<CardHeader>
-						<CardTitle className='text-2xl'>Organizations unavailable</CardTitle>
-						<CardDescription>
-							Your organizations could not be loaded. Please refresh and try
-							again.
-						</CardDescription>
-					</CardHeader>
-				</Card>
-			</main>
-		);
-	}
+  const organizations = organizationsResult.organizations;
+  if (organizations.length === 0) { redirect('/create-org'); }
+  if (organizations.length === 1) { redirect(`/${organizations[0].slug}/dashboard`); }
 
-	const organizations = organizationsResult.organizations;
+  return (
+    <>
+      <TopNav />
+      <div className="min-h-[calc(100vh-64px)] bg-surface-page flex flex-col items-center justify-center py-12">
+        <Container className="w-full">
+          <div className="w-full max-w-lg">
+            <div className="rounded-2xl border border-line bg-white p-8 shadow-card">
+              <h1 className="text-[28px] font-semibold tracking-ultratight text-ink">Select a workspace.</h1>
+              <p className="mt-2 text-[14.5px] text-slate-600 mb-6">Choose which organization to open.</p>
 
-	if (organizations.length === 0) {
-		redirect('/create-org');
-	}
-
-	if (organizations.length === 1) {
-		redirect(`/${organizations[0].slug}/dashboard`);
-	}
-
-	return (
-		<main className='min-h-screen bg-background flex items-center justify-center p-6'>
-			<div className='w-full max-w-lg'>
-				<Card>
-					<CardHeader>
-						<CardTitle className='text-2xl'>Select organization</CardTitle>
-						<CardDescription>
-							Choose the workspace you want to open.
-						</CardDescription>
-					</CardHeader>
-					<CardContent className='space-y-3'>
-						{organizations.map((organization) => (
-							<form key={organization.id} action={selectOrganization}>
-								<input type='hidden' name='slug' value={organization.slug} />
-								<Button
-									type='submit'
-									variant='outline'
-									className='h-auto w-full justify-start gap-3 p-4'>
-									<span className='flex h-10 w-10 items-center justify-center rounded-md bg-muted'>
-										<Building2 className='h-5 w-5 text-muted-foreground' />
-									</span>
-									<span className='text-left'>
-										<span className='block font-medium'>
-											{organization.name}
-										</span>
-										<span className='block text-xs text-muted-foreground'>
-											/{organization.slug}
-										</span>
-									</span>
-								</Button>
-							</form>
-						))}
-					</CardContent>
-				</Card>
-			</div>
-		</main>
-	);
+              <div className="space-y-3">
+                {organizations.map((organization) => (
+                  <form key={organization.id} action={selectOrganization}>
+                    <input type="hidden" name="slug" value={organization.slug} />
+                    <button
+                      type="submit"
+                      className="w-full flex items-center gap-4 rounded-xl border border-line bg-surface-page p-4 hover:border-ink hover:bg-white transition text-left group">
+                      <div className="h-10 w-10 rounded-lg bg-brand-50 text-brand-700 grid place-items-center shrink-0">
+                        <Building2 size={18} style={{ width: 18, height: 18 }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[14px] font-semibold text-ink truncate">{organization.name}</div>
+                        <div className="text-[12px] text-slate-500 mt-0.5">/{organization.slug}</div>
+                      </div>
+                      <ArrowRight size={16} className="text-slate-400 group-hover:text-ink transition shrink-0" style={{ width: 16, height: 16 }} />
+                    </button>
+                  </form>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Container>
+      </div>
+    </>
+  );
 }
 
 export default function SelectOrgPage() {
-	return (
-		<Suspense fallback={<main className='min-h-screen bg-background' />}>
-			<SelectOrgContent />
-		</Suspense>
-	);
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-surface-page" />}>
+      <SelectOrgContent />
+    </Suspense>
+  );
 }

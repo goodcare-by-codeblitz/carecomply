@@ -5,7 +5,7 @@ import { hasEnvVars } from "../utils";
 
 const AUTH_PATHS = ["/auth"];
 const AUTH_REDIRECT_PATHS = ["/auth/login", "/auth/sign-up"];
-const PUBLIC_PATHS = ["/", "/pricing"];
+const PUBLIC_PATHS = ["/", "/pricing", "/features", "/about", "/contact", "/demo", "/security"];
 const PUBLIC_PREFIXES = [
   "/api/billing/webhook",
   "/api/auth/login",
