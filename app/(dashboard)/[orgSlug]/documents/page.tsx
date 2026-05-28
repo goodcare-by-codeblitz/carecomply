@@ -127,144 +127,151 @@ export default function DocumentsPage() {
 		{},
 	);
 
+	const docStatusCls = (s: string) => {
+		if (s === 'approved') return 'bg-ok-50 text-ok';
+		if (s === 'pending')  return 'bg-warn-50 text-warn';
+		if (s === 'rejected') return 'bg-danger-50 text-danger';
+		if (s === 'expired')  return 'bg-danger-50 text-danger';
+		if (s === 'obsolete') return 'bg-surface-muted text-slate-500';
+		return 'bg-surface-muted text-slate-500';
+	};
+
+	const expiryBadgeCls = (days: number) => {
+		if (days <= 0)  return 'bg-danger-50 text-danger';
+		if (days <= 30) return 'bg-warn-50 text-warn';
+		return 'bg-surface-muted text-slate-500';
+	};
+
 	return (
-		<div className='p-8 max-w-7xl mx-auto'>
+		<div className='min-h-full'>
 			{/* Page header */}
-			<div className='flex items-center justify-between mb-8'>
-				<div>
-					<h1 className='text-2xl font-semibold tracking-tight'>Documents</h1>
-					<p className='text-muted-foreground mt-1'>
+			<div className='border-b border-line bg-white px-6 py-5 lg:px-8'>
+				<div className='mx-auto max-w-7xl'>
+					<h1 className='text-[22px] font-semibold tracking-tight text-ink'>Documents</h1>
+					<p className='mt-0.5 text-[13px] text-slate-500'>
 						View and manage all compliance documents across your carers.
 					</p>
 				</div>
 			</div>
 
-			{/* Document type stats */}
-			{loading ? (
-				<div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8'>
-					{[1, 2, 3, 4].map((i) => (
-						<Card key={i}>
-							<CardContent className='p-5 animate-pulse'>
-								<div className='h-4 bg-muted rounded w-24 mb-2' />
-								<div className='h-8 bg-muted rounded w-12 mb-2' />
-								<div className='h-3 bg-muted rounded w-32' />
-							</CardContent>
-						</Card>
-					))}
-				</div>
-			) : documentTypes && documentTypes.length > 0 ? (
-				<div className='grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8'>
-					{documentTypes.slice(0, 4).map((type) => (
-						<Card key={type.id}>
-							<CardContent className='p-5'>
-								<p className='text-sm text-muted-foreground'>{type.name}</p>
-								<p className='text-2xl font-semibold mt-1'>
+			<div className='mx-auto max-w-7xl px-6 py-6 lg:px-8'>
+				{/* Document type stat cards */}
+				{loading ? (
+					<div className='mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+						{[1, 2, 3, 4].map((i) => (
+							<div key={i} className='animate-pulse rounded-xl border border-line bg-white p-5 shadow-card'>
+								<div className='h-3 w-24 rounded bg-surface-muted' />
+								<div className='mt-3 h-7 w-10 rounded bg-surface-muted' />
+								<div className='mt-2 h-3 w-32 rounded bg-surface-muted' />
+							</div>
+						))}
+					</div>
+				) : documentTypes && documentTypes.length > 0 ? (
+					<div className='mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4'>
+						{documentTypes.slice(0, 4).map((type) => (
+							<div key={type.id} className='rounded-xl border border-line bg-white p-5 shadow-card'>
+								<p className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+									{type.name}
+								</p>
+								<p className='mt-2 text-[28px] font-semibold leading-none tracking-tight text-ink'>
 									{currentDocumentCountByType[type.id] ?? 0}
 								</p>
-								<p className='text-xs text-muted-foreground mt-1'>
+								<p className='mt-1.5 text-[12px] text-slate-400'>
 									{type.expiry_months
 										? `Expires every ${type.expiry_months} months`
 										: 'No expiry'}
 								</p>
-							</CardContent>
-						</Card>
-					))}
-				</div>
-			) : null}
-
-			{/* Filters */}
-			<div className='flex flex-wrap gap-4 mb-6'>
-				<div className='relative flex-1 min-w-[200px] max-w-md'>
-					<Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground' />
-					<Input
-						placeholder='Search documents...'
-						className='pl-10 h-11'
-						value={searchQuery}
-						onChange={(e) => setSearchQuery(e.target.value)}
-					/>
-				</div>
-
-				<Select value={selectedCarer} onValueChange={setSelectedCarer}>
-					<SelectTrigger className='w-[200px] h-11'>
-						<Filter className='w-4 h-4 mr-2 text-muted-foreground' />
-						<SelectValue placeholder='Filter by carer' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All Carers</SelectItem>
-						{carers.map((carer) => (
-							<SelectItem key={carer.id} value={carer.id}>
-								{carer.full_name}
-							</SelectItem>
+							</div>
 						))}
-					</SelectContent>
-				</Select>
+					</div>
+				) : null}
 
-				<Select value={selectedStatus} onValueChange={setSelectedStatus}>
-					<SelectTrigger className='w-[160px] h-11'>
-						<SelectValue placeholder='Status' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All Status</SelectItem>
-						<SelectItem value='pending'>Pending</SelectItem>
-						<SelectItem value='approved'>Approved</SelectItem>
-						<SelectItem value='rejected'>Rejected</SelectItem>
-						<SelectItem value='expired'>Expired</SelectItem>
-						<SelectItem value='obsolete'>History</SelectItem>
-					</SelectContent>
-				</Select>
+				{/* Filters */}
+				<div className='mb-4 flex flex-wrap items-center gap-3'>
+					<div className='relative min-w-[200px] flex-1 max-w-sm'>
+						<Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400' />
+						<Input
+							placeholder='Search documents...'
+							className='h-9 pl-9 text-[13.5px]'
+							value={searchQuery}
+							onChange={(e) => setSearchQuery(e.target.value)}
+						/>
+					</div>
 
-				{(selectedCarer !== 'all' ||
-					selectedStatus !== 'all' ||
-					searchQuery) && (
-					<Button
-						variant='ghost'
-						onClick={() => {
-							setSelectedCarer('all');
-							setSelectedStatus('all');
-							setSearchQuery('');
-						}}>
-						Clear filters
-					</Button>
-				)}
-			</div>
+					<Select value={selectedCarer} onValueChange={setSelectedCarer}>
+						<SelectTrigger className='h-9 w-[190px] text-[13.5px]'>
+							<Filter className='mr-1.5 h-3.5 w-3.5 text-slate-400' />
+							<SelectValue placeholder='Filter by carer' />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All Carers</SelectItem>
+							{carers.map((carer) => (
+								<SelectItem key={carer.id} value={carer.id}>
+									{carer.full_name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 
-			{/* Documents table */}
-			<Card>
-				<CardHeader>
-					<CardTitle className='text-base'>
-						{selectedCarer !== 'all'
-							? `Documents for ${carers.find((c) => c.id === selectedCarer)?.full_name}`
-							: 'All Documents'}
-						<span className='text-muted-foreground font-normal ml-2'>
-							({filteredDocuments.length})
+					<Select value={selectedStatus} onValueChange={setSelectedStatus}>
+						<SelectTrigger className='h-9 w-[150px] text-[13.5px]'>
+							<SelectValue placeholder='Status' />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All Status</SelectItem>
+							<SelectItem value='pending'>Pending</SelectItem>
+							<SelectItem value='approved'>Approved</SelectItem>
+							<SelectItem value='rejected'>Rejected</SelectItem>
+							<SelectItem value='expired'>Expired</SelectItem>
+							<SelectItem value='obsolete'>History</SelectItem>
+						</SelectContent>
+					</Select>
+
+					{(selectedCarer !== 'all' || selectedStatus !== 'all' || searchQuery) && (
+						<Button
+							variant='ghost'
+							size='sm'
+							className='h-9 text-[13.5px]'
+							onClick={() => {
+								setSelectedCarer('all');
+								setSelectedStatus('all');
+								setSearchQuery('');
+							}}>
+							Clear filters
+						</Button>
+					)}
+				</div>
+
+				{/* Documents list */}
+				<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+					{/* Table header */}
+					<div className='flex items-center gap-4 border-b border-line bg-surface-page px-5 py-2.5'>
+						<span className='flex-1 text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+							{selectedCarer !== 'all'
+								? `Documents · ${carers.find((c) => c.id === selectedCarer)?.full_name}`
+								: 'All Documents'}
+							<span className='ml-1.5 font-normal normal-case text-slate-400'>
+								({filteredDocuments.length})
+							</span>
 						</span>
-					</CardTitle>
-				</CardHeader>
-				<CardContent>
+					</div>
+
 					{loading ? (
-						<div className='space-y-3'>
+						<div className='divide-y divide-line'>
 							{[1, 2, 3, 4, 5].map((i) => (
-								<div
-									key={i}
-									className='flex items-center justify-between p-4 rounded-xl bg-muted/30 border border-border animate-pulse'>
-									<div className='flex items-center gap-4'>
-										<div className='w-10 h-10 rounded-lg bg-muted' />
-										<div className='space-y-2'>
-											<div className='h-4 bg-muted rounded w-32' />
-											<div className='h-3 bg-muted rounded w-48' />
-										</div>
+								<div key={i} className='flex items-center gap-4 px-5 py-4 animate-pulse'>
+									<div className='h-9 w-9 rounded-lg bg-surface-muted' />
+									<div className='flex-1 space-y-2'>
+										<div className='h-3.5 w-36 rounded bg-surface-muted' />
+										<div className='h-3 w-52 rounded bg-surface-muted' />
 									</div>
-									<div className='flex items-center gap-4'>
-										<div className='h-5 bg-muted rounded-full w-16' />
-										<div className='h-5 bg-muted rounded-full w-20' />
-										<div className='h-3 bg-muted rounded w-20' />
-										<div className='h-8 w-8 bg-muted rounded' />
-									</div>
+									<div className='h-5 w-16 rounded-full bg-surface-muted' />
+									<div className='h-5 w-20 rounded-full bg-surface-muted' />
 								</div>
 							))}
 						</div>
 					) : filteredDocuments.length > 0 ? (
-						<div className='space-y-3'>
+						<div className='divide-y divide-line'>
 							{filteredDocuments.map((doc) => {
 								const daysUntilExpiry = doc.expiry_date
 									? Math.ceil(
@@ -276,99 +283,75 @@ export default function DocumentsPage() {
 								return (
 									<div
 										key={doc.id}
-										className='flex items-center justify-between p-4 rounded-xl bg-muted/30 border border-border'>
-										<div className='flex items-center gap-4'>
-											<div className='w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center'>
-												<FileText className='w-5 h-5 text-muted-foreground' />
-											</div>
-											<div>
-												<p className='font-medium text-sm'>
-													{doc.document_types?.name}
-												</p>
-												<p className='text-xs text-muted-foreground'>
-													{doc.carers?.full_name} &middot; {doc.file_name}
-												</p>
-											</div>
+										className='flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface-page'>
+										{/* Icon */}
+										<div className='flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-line bg-white'>
+											<FileText className='h-4 w-4 text-slate-400' />
 										</div>
-										<div className='flex items-center gap-4'>
-											{daysUntilExpiry !== null && (
-												<span
-													className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-														daysUntilExpiry <= 0
-															? 'bg-red-50 text-red-700'
-															: daysUntilExpiry <= 30
-																? 'bg-amber-50 text-amber-700'
-																: 'bg-muted text-muted-foreground'
-													}`}>
-													{daysUntilExpiry <= 0
-														? 'Expired'
-														: `${daysUntilExpiry} days`}
-												</span>
-											)}
-											<span
-												className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-													doc.status === 'approved'
-														? 'bg-green-50 text-green-700'
-														: doc.status === 'pending'
-															? 'bg-amber-50 text-amber-700'
-															: doc.status === 'rejected'
-																? 'bg-red-50 text-red-700'
-																: 'bg-muted text-muted-foreground'
-												}`}>
-												{doc.status === 'obsolete'
-													? 'History'
-													: doc.status.charAt(0).toUpperCase() +
-														doc.status.slice(1)}
-											</span>
-											<p className='text-xs text-muted-foreground'>
-												{new Date(doc.uploaded_at).toLocaleDateString()}
+										{/* Info */}
+										<div className='min-w-0 flex-1'>
+											<p className='truncate text-[13.5px] font-medium text-ink'>
+												{doc.document_types?.name ?? 'Document'}
 											</p>
-											<Button variant='ghost' size='sm' asChild>
-												<a
-													href={`/api/documents/file?documentId=${encodeURIComponent(
-														doc.id,
-													)}`}
-													target='_blank'
-													rel='noopener noreferrer'>
-													View
-												</a>
-											</Button>
-											<DocumentManagerActions
-												documentId={doc.id}
-												status={doc.status}
-												expiryDate={doc.expiry_date}
-												fileName={doc.file_name}
-												onChanged={fetchData}
-											/>
+											<p className='truncate text-[12px] text-slate-400'>
+												{doc.carers?.full_name} · {doc.file_name}
+											</p>
 										</div>
+										{/* Expiry */}
+										{daysUntilExpiry !== null && (
+											<span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${expiryBadgeCls(daysUntilExpiry)}`}>
+												{daysUntilExpiry <= 0 ? 'Expired' : `${daysUntilExpiry}d`}
+											</span>
+										)}
+										{/* Status */}
+										<span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${docStatusCls(doc.status)}`}>
+											{doc.status === 'obsolete'
+												? 'History'
+												: doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+										</span>
+										{/* Date */}
+										<p className='hidden shrink-0 text-[12px] text-slate-400 sm:block'>
+											{new Date(doc.uploaded_at).toLocaleDateString('en-GB', {
+												day: 'numeric', month: 'short', year: 'numeric',
+											})}
+										</p>
+										{/* Actions */}
+										<Button variant='ghost' size='sm' className='h-7 shrink-0 text-[12.5px]' asChild>
+											<a
+												href={`/api/documents/file?documentId=${encodeURIComponent(doc.id)}`}
+												target='_blank'
+												rel='noopener noreferrer'>
+												View
+											</a>
+										</Button>
+										<DocumentManagerActions
+											documentId={doc.id}
+											status={doc.status}
+											expiryDate={doc.expiry_date}
+											fileName={doc.file_name}
+											onChanged={fetchData}
+										/>
 									</div>
 								);
 							})}
 						</div>
 					) : (
-						<div className='text-center py-12'>
-							<FileText className='w-12 h-12 text-muted-foreground/50 mx-auto mb-4' />
-							<h3 className='text-lg font-medium mb-2'>
-								{documents.length === 0
-									? 'No documents yet'
-									: 'No matching documents'}
-							</h3>
-							<p className='text-sm text-muted-foreground max-w-sm mx-auto'>
+						<div className='flex flex-col items-center justify-center py-20 text-center'>
+							<div className='flex h-14 w-14 items-center justify-center rounded-full bg-surface-muted'>
+								<FileText className='h-6 w-6 text-slate-400' />
+							</div>
+							<p className='mt-4 text-[15px] font-semibold text-ink'>
+								{documents.length === 0 ? 'No documents yet' : 'No matching documents'}
+							</p>
+							<p className='mt-2 max-w-sm text-[13.5px] text-slate-500 leading-snug'>
 								{documents.length === 0
 									? 'Documents will appear here once carers upload their compliance files.'
-									: "Try adjusting your filters to find what you're looking for."}
+									: 'Try adjusting your filters to find what you\'re looking for.'}
 							</p>
 						</div>
 					)}
-				</CardContent>
-			</Card>
-
-			{/* Document Viewer */}
-			{/* <DocumentViewer
-        open={viewerOpen}
-        onOpenChange={setViewerOpen}
-        document={viewerDoc}
-      /> */}
+				</div>
+			</div>
 		</div>
 	);
 }

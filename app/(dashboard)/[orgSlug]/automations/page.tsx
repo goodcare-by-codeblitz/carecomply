@@ -1,14 +1,6 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import {
 	Dialog,
 	DialogContent,
@@ -335,239 +327,279 @@ export default function AutomationsPage() {
 	if (isLoading || !organizationId) {
 		return (
 			<div className='flex min-h-[420px] items-center justify-center p-8'>
-				<Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+				<Loader2 className='h-8 w-8 animate-spin text-slate-400' />
 			</div>
 		);
 	}
 
 	return (
-		<div className='mx-auto max-w-6xl space-y-6 p-8'>
-			<div className='flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
-				<div>
-					<h1 className='text-2xl font-semibold tracking-tight'>Automations</h1>
-					<p className='mt-1 text-muted-foreground'>
-						Manage document expiry reminders, escalation, and reminder activity.
-					</p>
+		<div className='min-h-full'>
+			{/* Page header */}
+			<div className='border-b border-line bg-white px-6 py-5 lg:px-8'>
+				<div className='mx-auto flex max-w-6xl items-center justify-between gap-4'>
+					<div>
+						<h1 className='text-[22px] font-semibold tracking-tight text-ink'>Automations</h1>
+						<p className='mt-0.5 text-[13px] text-slate-500'>
+							Manage document expiry reminders, escalation, and reminder activity.
+						</p>
+					</div>
+					<Button type='button' onClick={openCreateDialog}>
+						<Plus className='h-3.5 w-3.5' />
+						New automation
+					</Button>
 				</div>
-				<Button type='button' onClick={openCreateDialog}>
-					<Plus className='mr-2 h-4 w-4' />
-					New automation
-				</Button>
 			</div>
 
-			{!billing?.isPro && (
-				<Card className='border-amber-200 bg-amber-50/50'>
-					<CardContent className='flex gap-3 py-4'>
-						<AlertCircle className='mt-0.5 h-5 w-5 shrink-0 text-amber-600' />
+			<div className='mx-auto max-w-6xl space-y-6 px-6 py-6 lg:px-8'>
+				{!billing?.isPro && (
+					<div className='flex items-start gap-3 rounded-xl border border-warn/30 bg-warn-50 px-4 py-3.5'>
+						<AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-warn' />
 						<div>
-							<p className='font-medium text-amber-900'>Starter reminders included</p>
-							<p className='mt-1 text-sm text-amber-800'>
+							<p className='text-[13.5px] font-semibold text-ink'>Starter reminders included</p>
+							<p className='mt-0.5 text-[13px] text-slate-600'>
 								Starter includes fixed expiry reminders. Upgrade to Pro for custom
 								document-type rules, scheduled sequences, and escalation workflows.
 							</p>
 						</div>
-					</CardContent>
-				</Card>
-			)}
+					</div>
+				)}
 
-			<div className='grid gap-6 lg:grid-cols-[1fr_340px]'>
-				<div className='space-y-6'>
-					<ReminderSection
-						title='Included Starter Reminders'
-						description='Fixed system-managed rules available to every organization.'
-						reminders={systemReminders}
-						readOnly
-					/>
-					<ReminderSection
-						title='Custom Pro Automations'
-						description='Per-document-type reminders and escalation rules.'
-						reminders={customReminders}
-						onEdit={openEditDialog}
-						onDelete={deleteReminder}
-						deletingId={deletingId}
-						emptyAction={billing?.isPro ? openCreateDialog : undefined}
-					/>
-				</div>
+				<div className='grid gap-6 lg:grid-cols-[1fr_340px]'>
+					<div className='space-y-6'>
+						<ReminderSection
+							title='Included Starter Reminders'
+							description='Fixed system-managed rules available to every organization.'
+							reminders={systemReminders}
+							readOnly
+						/>
+						<ReminderSection
+							title='Custom Pro Automations'
+							description='Per-document-type reminders and escalation rules.'
+							reminders={customReminders}
+							onEdit={openEditDialog}
+							onDelete={deleteReminder}
+							deletingId={deletingId}
+							emptyAction={billing?.isPro ? openCreateDialog : undefined}
+						/>
+					</div>
 
-				<Card>
-					<CardHeader>
-						<CardTitle className='text-base'>Recent Emails</CardTitle>
-						<CardDescription>Latest reminder worker activity.</CardDescription>
-					</CardHeader>
-					<CardContent>
-						{logs.length === 0 ? (
-							<div className='py-8 text-center text-sm text-muted-foreground'>
-								<Send className='mx-auto mb-3 h-8 w-8 text-muted-foreground/50' />
-								No reminders sent yet
-							</div>
-						) : (
-							<div className='space-y-3'>
-								{logs.map((log) => (
-									<div key={log.id} className='border-b pb-3 last:border-0 last:pb-0'>
-										<div className='flex items-start justify-between gap-3'>
-											<div className='min-w-0'>
-												<p className='truncate text-sm font-medium'>
-													{log.recipient_email || log.carers?.email || 'No recipient'}
-												</p>
-												<p className='truncate text-xs text-muted-foreground'>
-													{getLogDocumentType(log)} &middot; {log.recipient_type}
-												</p>
+					{/* Recent Emails sidebar */}
+					<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+						<div className='border-b border-line bg-surface-page px-5 py-3'>
+							<p className='text-[13.5px] font-semibold text-ink'>Recent Emails</p>
+							<p className='text-[12px] text-slate-400'>Latest reminder worker activity.</p>
+						</div>
+						<div className='p-5'>
+							{logs.length === 0 ? (
+								<div className='py-8 text-center'>
+									<Send className='mx-auto mb-3 h-7 w-7 text-slate-300' />
+									<p className='text-[13px] text-slate-400'>No reminders sent yet</p>
+								</div>
+							) : (
+								<div className='space-y-3'>
+									{logs.map((log) => (
+										<div
+											key={log.id}
+											className='border-b border-line pb-3 last:border-0 last:pb-0'>
+											<div className='flex items-start justify-between gap-3'>
+												<div className='min-w-0'>
+													<p className='truncate text-[13px] font-medium text-ink'>
+														{log.recipient_email || log.carers?.email || 'No recipient'}
+													</p>
+													<p className='truncate text-[12px] text-slate-400'>
+														{getLogDocumentType(log)} &middot; {log.recipient_type}
+													</p>
+												</div>
+												<span
+													className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${log.status === 'sent' ? 'bg-ok-50 text-ok' : 'bg-surface-muted text-slate-600'}`}>
+													{log.status}
+												</span>
 											</div>
-											<Badge variant={log.status === 'sent' ? 'default' : 'secondary'}>
-												{log.status}
-											</Badge>
+											<p className='mt-1 text-[12px] text-slate-400'>
+												{new Date(log.sent_at).toLocaleString('en-GB', {
+													day: 'numeric',
+													month: 'short',
+													hour: '2-digit',
+													minute: '2-digit',
+												})}
+											</p>
+											{log.error_message && (
+												<p className='mt-1 text-[12px] text-danger'>{log.error_message}</p>
+											)}
 										</div>
-										<p className='mt-1 text-xs text-muted-foreground'>
-											{new Date(log.sent_at).toLocaleString('en-GB', {
-												day: 'numeric',
-												month: 'short',
-												hour: '2-digit',
-												minute: '2-digit',
-											})}
-										</p>
-										{log.error_message && (
-											<p className='mt-1 text-xs text-destructive'>{log.error_message}</p>
-										)}
-									</div>
-								))}
-							</div>
-						)}
-					</CardContent>
-				</Card>
+									))}
+								</div>
+							)}
+						</div>
+					</div>
+				</div>
 			</div>
 
 			<Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
 				<DialogContent className='sm:max-w-xl'>
 					<DialogHeader>
-						<DialogTitle>
-							{form.id ? 'Edit automation' : 'Create automation'}
+						<div className='mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50'>
+							<Zap className='h-4 w-4 text-brand-700' />
+						</div>
+						<DialogTitle className='text-[16px]'>
+							{form.id ? 'Edit automation' : 'New automation'}
 						</DialogTitle>
-						<DialogDescription>
-							Custom automations are available on Pro.
+						<DialogDescription className='text-[13px]'>
+							Configure a document expiry reminder rule for your organisation.
 						</DialogDescription>
 					</DialogHeader>
 
-					<div className='space-y-4 py-2'>
-						<div className='space-y-2'>
-							<Label>Name</Label>
+					<div className='space-y-4 pt-1'>
+						{/* Name */}
+						<div className='space-y-1.5'>
+							<Label className='text-[13px] font-medium text-ink'>Name</Label>
 							<Input
 								value={form.name}
 								onChange={(event) =>
 									setForm((current) => ({ ...current, name: event.target.value }))
 								}
-								placeholder='DBS 14 day reminder'
+								placeholder='DBS 14-day reminder'
+								className='text-[13.5px]'
 							/>
 						</div>
 
-						<div className='grid gap-4 sm:grid-cols-2'>
-							<div className='space-y-2'>
-								<Label>Document type</Label>
-								<Select
-									value={form.documentTypeId}
-									onValueChange={(value) =>
-										setForm((current) => ({ ...current, documentTypeId: value }))
-									}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value={ALL_DOCUMENT_TYPES}>All document types</SelectItem>
-										{documentTypes.map((documentType) => (
-											<SelectItem key={documentType.id} value={documentType.id}>
-												{documentType.name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-
-							<div className='space-y-2'>
-								<Label>Recipient</Label>
-								<Select
-									value={form.recipientType}
-									onValueChange={(value: FormState['recipientType']) =>
-										setForm((current) => ({ ...current, recipientType: value }))
-									}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='carer'>Carer</SelectItem>
-										<SelectItem value='management'>Admins and managers</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-						</div>
-
-						<div className='grid gap-4 sm:grid-cols-2'>
-							<div className='space-y-2'>
-								<Label>Trigger</Label>
-								<Select
-									value={form.triggerType}
-									onValueChange={(value: FormState['triggerType']) =>
-										setForm((current) => ({ ...current, triggerType: value }))
-									}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='days_before_expiry'>Days before expiry</SelectItem>
-										<SelectItem value='days_after_expiry'>Days after expiry</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-							<div className='space-y-2'>
-								<Label>Days</Label>
-								<Input
-									type='number'
-									min='0'
-									max='365'
-									value={form.triggerDays}
-									onChange={(event) =>
-										setForm((current) => ({
-											...current,
-											triggerDays: event.target.value,
-										}))
-									}
-								/>
-							</div>
-						</div>
-
-						<div className='space-y-2'>
-							<Label>Subject</Label>
-							<Input
-								value={form.subjectTemplate}
-								onChange={(event) =>
-									setForm((current) => ({
-										...current,
-										subjectTemplate: event.target.value,
-									}))
-								}
-							/>
-						</div>
-						<div className='space-y-2'>
-							<Label>Email message</Label>
-							<Textarea
-								value={form.messageTemplate}
-								onChange={(event) =>
-									setForm((current) => ({
-										...current,
-										messageTemplate: event.target.value,
-									}))
-								}
-								rows={6}
-								className='font-mono text-sm'
-							/>
-							<p className='text-xs text-muted-foreground'>
-								Variables: {'{{carer_name}}'}, {'{{document_type}}'},{' '}
-								{'{{expiry_date}}'}, {'{{onboarding_link}}'},{' '}
-								{'{{organization_name}}'}
+						{/* Schedule group */}
+						<div className='rounded-xl border border-line bg-surface-muted/30 p-4'>
+							<p className='mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400'>
+								Schedule
 							</p>
+							<div className='grid gap-3 sm:grid-cols-2'>
+								<div className='space-y-1.5'>
+									<Label className='text-[12.5px] text-slate-600'>Trigger</Label>
+									<Select
+										value={form.triggerType}
+										onValueChange={(value: FormState['triggerType']) =>
+											setForm((current) => ({ ...current, triggerType: value }))
+										}>
+										<SelectTrigger className='text-[13.5px]'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value='days_before_expiry'>Days before expiry</SelectItem>
+											<SelectItem value='days_after_expiry'>Days after expiry</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1.5'>
+									<Label className='text-[12.5px] text-slate-600'>Days</Label>
+									<Input
+										type='number'
+										min='0'
+										max='365'
+										value={form.triggerDays}
+										onChange={(event) =>
+											setForm((current) => ({
+												...current,
+												triggerDays: event.target.value,
+											}))
+										}
+										className='text-[13.5px]'
+									/>
+								</div>
+							</div>
 						</div>
-						<div className='flex items-center justify-between rounded-md border p-3'>
+
+						{/* Target group */}
+						<div className='rounded-xl border border-line bg-surface-muted/30 p-4'>
+							<p className='mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400'>
+								Target
+							</p>
+							<div className='grid gap-3 sm:grid-cols-2'>
+								<div className='space-y-1.5'>
+									<Label className='text-[12.5px] text-slate-600'>Document type</Label>
+									<Select
+										value={form.documentTypeId}
+										onValueChange={(value) =>
+											setForm((current) => ({ ...current, documentTypeId: value }))
+										}>
+										<SelectTrigger className='text-[13.5px]'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value={ALL_DOCUMENT_TYPES}>All document types</SelectItem>
+											{documentTypes.map((documentType) => (
+												<SelectItem key={documentType.id} value={documentType.id}>
+													{documentType.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1.5'>
+									<Label className='text-[12.5px] text-slate-600'>Recipient</Label>
+									<Select
+										value={form.recipientType}
+										onValueChange={(value: FormState['recipientType']) =>
+											setForm((current) => ({ ...current, recipientType: value }))
+										}>
+										<SelectTrigger className='text-[13.5px]'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value='carer'>Carer</SelectItem>
+											<SelectItem value='management'>Admins and managers</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
+						</div>
+
+						{/* Email template */}
+						<div className='rounded-xl border border-line bg-surface-muted/30 p-4'>
+							<p className='mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400'>
+								Email template
+							</p>
+							<div className='space-y-3'>
+								<div className='space-y-1.5'>
+									<Label className='text-[12.5px] text-slate-600'>Subject line</Label>
+									<Input
+										value={form.subjectTemplate}
+										onChange={(event) =>
+											setForm((current) => ({
+												...current,
+												subjectTemplate: event.target.value,
+											}))
+										}
+										className='text-[13.5px]'
+									/>
+								</div>
+								<div className='space-y-1.5'>
+									<Label className='text-[12.5px] text-slate-600'>Message body</Label>
+									<Textarea
+										value={form.messageTemplate}
+										onChange={(event) =>
+											setForm((current) => ({
+												...current,
+												messageTemplate: event.target.value,
+											}))
+										}
+										rows={5}
+										className='font-mono text-[12.5px]'
+									/>
+									<p className='text-[11.5px] text-slate-400'>
+										Variables:{' '}
+										{[
+											'{{carer_name}}',
+											'{{document_type}}',
+											'{{expiry_date}}',
+											'{{onboarding_link}}',
+											'{{organization_name}}',
+										].join(', ')}
+									</p>
+								</div>
+							</div>
+						</div>
+
+						{/* Active toggle */}
+						<div className='flex items-center justify-between rounded-xl border border-line p-3.5'>
 							<div>
-								<p className='text-sm font-medium'>Active</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[13.5px] font-medium text-ink'>Active</p>
+								<p className='text-[12px] text-slate-500'>
 									Paused automations will not enqueue reminder jobs.
 								</p>
 							</div>
@@ -585,7 +617,11 @@ export default function AutomationsPage() {
 							Cancel
 						</Button>
 						<Button onClick={saveReminder} disabled={isSaving}>
-							{isSaving && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
+							{isSaving ? (
+								<Loader2 className='h-3.5 w-3.5 animate-spin' />
+							) : (
+								<Zap className='h-3.5 w-3.5' />
+							)}
 							{form.id ? 'Save changes' : 'Create automation'}
 						</Button>
 					</DialogFooter>
@@ -615,16 +651,16 @@ function ReminderSection({
 	emptyAction?: () => void;
 }) {
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle className='text-base'>{title}</CardTitle>
-				<CardDescription>{description}</CardDescription>
-			</CardHeader>
-			<CardContent>
+		<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+			<div className='border-b border-line bg-surface-page px-5 py-3'>
+				<p className='text-[13.5px] font-semibold text-ink'>{title}</p>
+				<p className='text-[12px] text-slate-400'>{description}</p>
+			</div>
+			<div className='p-5'>
 				{reminders.length === 0 ? (
-					<div className='rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground'>
-						<Zap className='mx-auto mb-3 h-8 w-8 text-muted-foreground/50' />
-						No automations configured.
+					<div className='rounded-xl border border-dashed border-line p-8 text-center'>
+						<Zap className='mx-auto mb-3 h-7 w-7 text-slate-300' />
+						<p className='text-[13px] text-slate-400'>No automations configured.</p>
 						{emptyAction && (
 							<div className='mt-4'>
 								<Button type='button' onClick={emptyAction}>
@@ -639,18 +675,27 @@ function ReminderSection({
 						{reminders.map((reminder) => (
 							<div
 								key={reminder.id}
-								className='flex flex-col gap-4 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between'>
+								className='flex flex-col gap-4 rounded-xl border border-line p-4 sm:flex-row sm:items-center sm:justify-between'>
 								<div className='min-w-0'>
 									<div className='flex flex-wrap items-center gap-2'>
 										{getTriggerIcon(reminder)}
-										<p className='font-medium'>{reminder.name}</p>
-										<Badge variant={reminder.is_active ? 'default' : 'secondary'}>
+										<p className='text-[13.5px] font-medium text-ink'>{reminder.name}</p>
+										<span
+											className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${reminder.is_active ? 'bg-ok-50 text-ok' : 'bg-surface-muted text-slate-500'}`}>
 											{reminder.is_active ? 'Active' : 'Paused'}
-										</Badge>
-										{reminder.is_system && <Badge variant='outline'>Included</Badge>}
-										{reminder.min_plan === 'pro' && <Badge variant='outline'>Pro</Badge>}
+										</span>
+										{reminder.is_system && (
+											<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-surface-muted text-slate-600'>
+												Included
+											</span>
+										)}
+										{reminder.min_plan === 'pro' && (
+											<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-brand-50 text-brand-700'>
+												Pro
+											</span>
+										)}
 									</div>
-									<p className='mt-1 text-sm text-muted-foreground'>
+									<p className='mt-1 text-[12.5px] text-slate-400'>
 										{getTriggerLabel(reminder)}
 										<span aria-hidden='true'> &middot; </span>
 										{getRecipientLabel(reminder)}
@@ -687,19 +732,19 @@ function ReminderSection({
 						))}
 					</div>
 				)}
-			</CardContent>
-		</Card>
+			</div>
+		</div>
 	);
 }
 
 function getTriggerIcon(reminder: Reminder) {
 	if (reminder.recipient_type === 'management') {
-		return <Bell className='h-4 w-4 text-muted-foreground' />;
+		return <Bell className='h-4 w-4 text-slate-400' />;
 	}
 	if (reminder.trigger_type === 'days_after_expiry') {
-		return <Mail className='h-4 w-4 text-muted-foreground' />;
+		return <Mail className='h-4 w-4 text-slate-400' />;
 	}
-	return <Clock className='h-4 w-4 text-muted-foreground' />;
+	return <Clock className='h-4 w-4 text-slate-400' />;
 }
 
 function getTriggerLabel(reminder: Reminder) {

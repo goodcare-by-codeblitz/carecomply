@@ -150,6 +150,24 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
+  // Platform admin bypass — check before tenant org logic runs.
+  // RLS allows users to query their own platform_memberships row.
+  const { data: platformMembership } = await supabase
+    .from('platform_memberships')
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (platformMembership) {
+    // Authenticated admin visiting auth pages → redirect to admin panel
+    if (shouldRedirectAuthenticatedAuthPath) {
+      return redirectWithCookies(request, supabaseResponse, '/admin/reminders');
+    }
+    // All other paths: pass through — page-level guards on /admin/* handle protection.
+    // Platform admins have no org membership so tenant logic must never run for them.
+    return supabaseResponse;
+  }
+
   const organizationsResult = await getUserOrganizationsResult(supabase, userId);
 
   if (!organizationsResult.ok) {

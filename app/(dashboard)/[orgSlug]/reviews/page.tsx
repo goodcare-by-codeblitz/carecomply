@@ -1,13 +1,6 @@
 'use client';
 
 import { createClient } from '@/lib/supabase/client';
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-	CardDescription,
-} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -42,7 +35,6 @@ import { z } from 'zod';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { getCurrentOrgBySlug } from '@/lib/orgs';
-// import { DocumentViewer } from '@/components/document-viewer'
 
 const rejectionSchema = z.object({
 	reason: z
@@ -105,8 +97,6 @@ export default function ReviewsPage() {
 	const [reviewNotes, setReviewNotes] = useState('');
 	const [submitting, setSubmitting] = useState(false);
 	const [errors, setErrors] = useState<{ reason?: string }>({});
-	// const [viewerOpen, setViewerOpen] = useState(false)
-	// const [viewerDoc, setViewerDoc] = useState<Document | null>(null)
 
 	const fetchDocuments = useCallback(async () => {
 		setLoading(true);
@@ -260,142 +250,150 @@ export default function ReviewsPage() {
 	const pendingCount = documents.filter((d) => d.status === 'pending').length;
 
 	return (
-		<div className='p-8 max-w-7xl mx-auto'>
+		<div className='min-h-full'>
 			{/* Page header */}
-			<div className='flex items-center justify-between mb-8'>
-				<div>
-					<h1 className='text-2xl font-semibold tracking-tight'>
-						Document Reviews
-					</h1>
-					<p className='text-muted-foreground mt-1'>
-						Review, approve, or reject compliance documents submitted by carers.
-					</p>
-				</div>
-				{pendingCount > 0 && (
-					<div className='flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200'>
-						<Clock className='w-4 h-4 text-amber-600' />
-						<span className='text-sm font-medium text-amber-700'>
-							{pendingCount} pending review{pendingCount !== 1 ? 's' : ''}
-						</span>
+			<div className='border-b border-line bg-white px-6 py-5 lg:px-8'>
+				<div className='mx-auto max-w-7xl flex items-center justify-between'>
+					<div>
+						<h1 className='text-[22px] font-semibold tracking-tight text-ink'>
+							Document Reviews
+						</h1>
+						<p className='mt-0.5 text-[13px] text-slate-500'>
+							Review, approve, or reject compliance documents submitted by carers.
+						</p>
 					</div>
-				)}
-			</div>
-
-			{/* Filters */}
-			<div className='flex flex-col sm:flex-row gap-4 mb-6'>
-				<div className='relative flex-1 max-w-md'>
-					<Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground' />
-					<Input
-						placeholder='Search by carer name, document type...'
-						className='pl-10 h-11'
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-					/>
-				</div>
-				<Select
-					value={filter}
-					onValueChange={(v) => setFilter(v as typeof filter)}>
-					<SelectTrigger className='w-[180px] h-11'>
-						<Filter className='w-4 h-4 mr-2' />
-						<SelectValue placeholder='Filter by status' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All Documents</SelectItem>
-						<SelectItem value='pending'>Pending Review</SelectItem>
-						<SelectItem value='approved'>Approved</SelectItem>
-						<SelectItem value='rejected'>Rejected</SelectItem>
-					</SelectContent>
-				</Select>
-			</div>
-
-			{/* Documents list */}
-			<Card>
-				<CardHeader>
-					<CardTitle className='text-base'>
-						{filter === 'all'
-							? 'All Documents'
-							: filter === 'pending'
-								? 'Pending Reviews'
-								: filter === 'approved'
-									? 'Approved Documents'
-									: 'Rejected Documents'}
-					</CardTitle>
-					<CardDescription>Click on a document to review it</CardDescription>
-				</CardHeader>
-				<CardContent>
-					{loading ? (
-						<div className='flex items-center justify-center py-12'>
-							<div className='w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin' />
-						</div>
-					) : filteredDocs.length > 0 ? (
-						<div className='space-y-3'>
-							{filteredDocs.map((doc) => (
-								<button
-									key={doc.id}
-									onClick={() => {
-										setSelectedDoc(doc);
-										setReviewNotes(doc.review_notes || '');
-										setRejectionReason(doc.rejection_reason || '');
-									}}
-									className='w-full flex items-center justify-between p-4 rounded-xl bg-muted/30 border border-border hover:bg-muted/50 transition-colors text-left'>
-									<div className='flex items-center gap-4'>
-										<div
-											className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-												doc.status === 'pending'
-													? 'bg-amber-50 border border-amber-200'
-													: doc.status === 'approved'
-														? 'bg-green-50 border border-green-200'
-														: 'bg-red-50 border border-red-200'
-											}`}>
-											{doc.status === 'pending' ? (
-												<Clock className='w-5 h-5 text-amber-600' />
-											) : doc.status === 'approved' ? (
-												<CheckCircle className='w-5 h-5 text-green-600' />
-											) : (
-												<XCircle className='w-5 h-5 text-red-600' />
-											)}
-										</div>
-										<div>
-											<p className='font-medium text-sm'>
-												{doc.document_type?.name ?? UNKNOWN_DOCUMENT_TYPE}
-											</p>
-											<p className='text-xs text-muted-foreground'>
-												{doc.carers?.full_name} &middot; Uploaded{' '}
-												{new Date(doc.uploaded_at).toLocaleDateString()}
-											</p>
-										</div>
-									</div>
-									<div className='flex items-center gap-3'>
-										<span
-											className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-												doc.status === 'approved'
-													? 'bg-green-50 text-green-700'
-													: doc.status === 'pending'
-														? 'bg-amber-50 text-amber-700'
-														: 'bg-red-50 text-red-700'
-											}`}>
-											{doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-										</span>
-										<ChevronRight className='w-4 h-4 text-muted-foreground' />
-									</div>
-								</button>
-							))}
-						</div>
-					) : (
-						<div className='text-center py-12'>
-							<CheckCircle className='w-12 h-12 text-green-500/50 mx-auto mb-4' />
-							<h3 className='text-lg font-medium mb-2'>
-								{filter === 'pending' ? 'All caught up!' : 'No documents found'}
-							</h3>
-							<p className='text-sm text-muted-foreground max-w-sm mx-auto'>
-								{filter === 'pending'
-									? 'There are no documents waiting for review.'
-									: 'No documents match your current filters.'}
-							</p>
+					{pendingCount > 0 && (
+						<div className='flex items-center gap-2 rounded-full border border-warn/30 bg-warn-50 px-3.5 py-1.5'>
+							<Clock className='h-3.5 w-3.5 text-warn' />
+							<span className='text-[12.5px] font-medium text-warn'>
+								{pendingCount} pending review{pendingCount !== 1 ? 's' : ''}
+							</span>
 						</div>
 					)}
-				</CardContent>
-			</Card>
+				</div>
+			</div>
+
+			<div className='mx-auto max-w-7xl px-6 py-6 lg:px-8'>
+				{/* Filters */}
+				<div className='mb-5 flex flex-col gap-3 sm:flex-row'>
+					<div className='relative flex-1 max-w-md'>
+						<Search className='absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400' />
+						<Input
+							placeholder='Search by carer name, document type...'
+							className='h-9 pl-9 text-[13.5px]'
+							value={search}
+							onChange={(e) => setSearch(e.target.value)}
+						/>
+					</div>
+					<Select
+						value={filter}
+						onValueChange={(v) => setFilter(v as typeof filter)}>
+						<SelectTrigger className='h-9 w-[180px] text-[13.5px]'>
+							<Filter className='h-3.5 w-3.5 mr-2' />
+							<SelectValue placeholder='Filter by status' />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All Documents</SelectItem>
+							<SelectItem value='pending'>Pending Review</SelectItem>
+							<SelectItem value='approved'>Approved</SelectItem>
+							<SelectItem value='rejected'>Rejected</SelectItem>
+						</SelectContent>
+					</Select>
+				</div>
+
+				{/* Documents panel */}
+				<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+					<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+						<h2 className='text-[14px] font-semibold text-ink'>
+							{filter === 'all'
+								? 'All Documents'
+								: filter === 'pending'
+									? 'Pending Reviews'
+									: filter === 'approved'
+										? 'Approved Documents'
+										: 'Rejected Documents'}
+						</h2>
+						<p className='mt-0.5 text-[12.5px] text-slate-500'>
+							Click on a document to review it
+						</p>
+					</div>
+					<div className='p-4'>
+						{loading ? (
+							<div className='flex items-center justify-center py-12'>
+								<div className='h-5 w-5 rounded-full border-2 border-brand border-t-transparent animate-spin' />
+							</div>
+						) : filteredDocs.length > 0 ? (
+							<div className='space-y-2'>
+								{filteredDocs.map((doc) => (
+									<button
+										key={doc.id}
+										onClick={() => {
+											setSelectedDoc(doc);
+											setReviewNotes(doc.review_notes || '');
+											setRejectionReason(doc.rejection_reason || '');
+										}}
+										className='w-full flex items-center justify-between p-4 rounded-xl border border-line bg-surface-muted/30 hover:bg-surface-muted/60 transition-colors text-left'>
+										<div className='flex items-center gap-4'>
+											<div
+												className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+													doc.status === 'pending'
+														? 'bg-warn-50 border border-warn/30'
+														: doc.status === 'approved'
+															? 'bg-ok-50 border border-ok/30'
+															: 'bg-danger-50 border border-danger/30'
+												}`}>
+												{doc.status === 'pending' ? (
+													<Clock className='h-5 w-5 text-warn' />
+												) : doc.status === 'approved' ? (
+													<CheckCircle className='h-5 w-5 text-ok' />
+												) : (
+													<XCircle className='h-5 w-5 text-danger' />
+												)}
+											</div>
+											<div>
+												<p className='text-[13.5px] font-medium text-ink'>
+													{doc.document_type?.name ?? UNKNOWN_DOCUMENT_TYPE}
+												</p>
+												<p className='text-[12px] text-slate-500'>
+													{doc.carers?.full_name} &middot; Uploaded{' '}
+													{new Date(doc.uploaded_at).toLocaleDateString()}
+												</p>
+											</div>
+										</div>
+										<div className='flex items-center gap-3'>
+											<span
+												className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+													doc.status === 'approved'
+														? 'bg-ok-50 text-ok'
+														: doc.status === 'pending'
+															? 'bg-warn-50 text-warn'
+															: 'bg-danger-50 text-danger'
+												}`}>
+												{doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+											</span>
+											<ChevronRight className='h-4 w-4 text-slate-400' />
+										</div>
+									</button>
+								))}
+							</div>
+						) : (
+							<div className='py-12 text-center'>
+								<div className='mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-surface-muted'>
+									<CheckCircle className='h-6 w-6 text-slate-400' />
+								</div>
+								<h3 className='text-[14px] font-semibold text-ink mb-1'>
+									{filter === 'pending' ? 'All caught up!' : 'No documents found'}
+								</h3>
+								<p className='text-[13px] text-slate-500 max-w-sm mx-auto'>
+									{filter === 'pending'
+										? 'There are no documents waiting for review.'
+										: 'No documents match your current filters.'}
+								</p>
+							</div>
+						)}
+					</div>
+				</div>
+			</div>
 
 			{/* Review Dialog */}
 			<Dialog
@@ -410,32 +408,30 @@ export default function ReviewsPage() {
 					</DialogHeader>
 
 					{selectedDoc && (
-						<div className='space-y-6'>
+						<div className='space-y-5'>
 							{/* Document info */}
-							<div className='grid grid-cols-2 gap-4 p-4 rounded-lg bg-muted/50'>
+							<div className='grid grid-cols-2 gap-4 rounded-xl bg-surface-muted/50 p-4'>
 								<div>
-									<p className='text-xs text-muted-foreground mb-1'>
-										Document Type
-									</p>
-									<p className='font-medium'>
+									<p className='text-[12px] text-slate-500 mb-1'>Document Type</p>
+									<p className='text-[13.5px] font-medium text-ink'>
 										{selectedDoc.document_type?.name ?? UNKNOWN_DOCUMENT_TYPE}
 									</p>
 								</div>
 								<div>
-									<p className='text-xs text-muted-foreground mb-1'>Carer</p>
-									<p className='font-medium'>{selectedDoc.carers?.full_name}</p>
+									<p className='text-[12px] text-slate-500 mb-1'>Carer</p>
+									<p className='text-[13.5px] font-medium text-ink'>
+										{selectedDoc.carers?.full_name}
+									</p>
 								</div>
 								<div>
-									<p className='text-xs text-muted-foreground mb-1'>File</p>
-									<p className='font-medium text-sm truncate'>
+									<p className='text-[12px] text-slate-500 mb-1'>File</p>
+									<p className='text-[13px] font-medium text-ink truncate'>
 										{selectedDoc.file_name}
 									</p>
 								</div>
 								<div>
-									<p className='text-xs text-muted-foreground mb-1'>
-										Expiry Date
-									</p>
-									<p className='font-medium'>
+									<p className='text-[12px] text-slate-500 mb-1'>Expiry Date</p>
+									<p className='text-[13.5px] font-medium text-ink'>
 										{selectedDoc.expiry_date
 											? new Date(selectedDoc.expiry_date).toLocaleDateString()
 											: 'No expiry'}
@@ -454,17 +450,17 @@ export default function ReviewsPage() {
 								</a>
 							</Button>
 
-							{/* Previous rejection reason if any */}
+							{/* Previous rejection reason */}
 							{selectedDoc.status === 'rejected' &&
 								selectedDoc.rejection_reason && (
-									<div className='p-4 rounded-lg bg-red-50 border border-red-200'>
+									<div className='rounded-xl border border-danger/30 bg-danger-50 p-4'>
 										<div className='flex items-start gap-2'>
-											<AlertCircle className='w-4 h-4 text-red-600 mt-0.5' />
+											<AlertCircle className='h-4 w-4 text-danger mt-0.5 shrink-0' />
 											<div>
-												<p className='text-sm font-medium text-red-800'>
+												<p className='text-[13px] font-medium text-danger'>
 													Previous Rejection Reason
 												</p>
-												<p className='text-sm text-red-700 mt-1'>
+												<p className='text-[12.5px] text-danger/80 mt-1'>
 													{selectedDoc.rejection_reason}
 												</p>
 											</div>
@@ -488,16 +484,16 @@ export default function ReviewsPage() {
 							{selectedDoc.status === 'pending' && !reviewAction && (
 								<div className='flex gap-3'>
 									<Button
-										className='flex-1 bg-green-600 hover:bg-green-700'
+										className='flex-1'
 										onClick={() => setReviewAction('approve')}>
-										<CheckCircle className='w-4 h-4 mr-2' />
+										<CheckCircle className='h-4 w-4 mr-2' />
 										Approve Document
 									</Button>
 									<Button
 										variant='destructive'
 										className='flex-1'
 										onClick={() => setReviewAction('reject')}>
-										<XCircle className='w-4 h-4 mr-2' />
+										<XCircle className='h-4 w-4 mr-2' />
 										Reject Document
 									</Button>
 								</div>
@@ -505,10 +501,10 @@ export default function ReviewsPage() {
 
 							{/* Rejection reason input */}
 							{reviewAction === 'reject' && (
-								<div className='space-y-4 p-4 rounded-lg border border-red-200 bg-red-50'>
+								<div className='space-y-3 rounded-xl border border-danger/30 bg-danger-50 p-4'>
 									<div className='space-y-2'>
-										<Label htmlFor='reason' className='text-red-800'>
-											Rejection Reason <span className='text-red-600'>*</span>
+										<Label htmlFor='reason' className='text-danger'>
+											Rejection Reason <span className='text-danger'>*</span>
 										</Label>
 										<Textarea
 											id='reason'
@@ -519,13 +515,13 @@ export default function ReviewsPage() {
 												if (errors.reason) setErrors({});
 											}}
 											rows={3}
-											className={errors.reason ? 'border-red-500' : ''}
+											className={errors.reason ? 'border-danger' : ''}
 										/>
 										{errors.reason && (
-											<p className='text-xs text-red-600'>{errors.reason}</p>
+											<p className='text-[12px] text-danger'>{errors.reason}</p>
 										)}
 									</div>
-									<p className='text-xs text-red-700'>
+									<p className='text-[12px] text-danger/80'>
 										The carer will receive an email with this reason and a link
 										to upload a new document.
 									</p>
@@ -547,16 +543,9 @@ export default function ReviewsPage() {
 									<Button
 										onClick={handleReview}
 										disabled={submitting}
-										className={
-											reviewAction === 'approve'
-												? 'bg-green-600 hover:bg-green-700'
-												: ''
-										}
-										variant={
-											reviewAction === 'reject' ? 'destructive' : 'default'
-										}>
+										variant={reviewAction === 'reject' ? 'destructive' : 'default'}>
 										{submitting ? (
-											<div className='w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2' />
+											<div className='h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin mr-2' />
 										) : null}
 										Confirm{' '}
 										{reviewAction === 'approve' ? 'Approval' : 'Rejection'}
@@ -566,12 +555,12 @@ export default function ReviewsPage() {
 
 							{/* Already reviewed */}
 							{selectedDoc.status !== 'pending' && (
-								<div className='flex items-center justify-between p-4 rounded-lg bg-muted/50'>
+								<div className='flex items-center justify-between rounded-xl bg-surface-muted/50 p-4'>
 									<div>
-										<p className='text-sm font-medium'>
+										<p className='text-[13.5px] font-medium text-ink'>
 											This document was {selectedDoc.status}
 										</p>
-										<p className='text-xs text-muted-foreground mt-1'>
+										<p className='text-[12px] text-slate-500 mt-0.5'>
 											No further action needed
 										</p>
 									</div>
@@ -586,13 +575,6 @@ export default function ReviewsPage() {
 					)}
 				</DialogContent>
 			</Dialog>
-
-			{/* Document Viewer */}
-			{/* <DocumentViewer
-        open={viewerOpen}
-        onOpenChange={setViewerOpen}
-        document={viewerDoc}
-      /> */}
 		</div>
 	);
 }

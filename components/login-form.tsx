@@ -114,8 +114,7 @@ export function LoginForm() {
           ? getCreateOrgRedirect(email)
           : null;
       const platformAdminRedirect =
-        payload.platformAccess?.canAccessAdmin &&
-        (adminRedirect || organizations.length === 0)
+        payload.platformAccess?.canAccessAdmin
           ? '/admin/reminders'
           : null;
 

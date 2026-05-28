@@ -22,7 +22,7 @@ import {
 	LayoutDashboard,
 	Menu,
 	Settings,
-	Shield,
+	ShieldCheck,
 	Users,
 	UsersRound,
 	Zap,
@@ -47,53 +47,18 @@ const navigationGroups: { label: string; items: NavItem[] }[] = [
 	{
 		label: 'Compliance',
 		items: [
-			{
-				name: 'Carers',
-				href: '/carers',
-				icon: Users,
-				permission: PERMISSIONS.CARERS_VIEW,
-			},
-			{
-				name: 'Documents',
-				href: '/documents',
-				icon: FileText,
-				permission: PERMISSIONS.DOCUMENTS_VIEW,
-			},
-			{
-				name: 'Reviews',
-				href: '/reviews',
-				icon: ClipboardCheck,
-				permission: PERMISSIONS.DOCUMENTS_REVIEW,
-			},
-			{
-				name: 'Automations',
-				href: '/automations',
-				icon: Zap,
-				permission: PERMISSIONS.AUTOMATIONS_VIEW,
-			},
+			{ name: 'Carers', href: '/carers', icon: Users, permission: PERMISSIONS.CARERS_VIEW },
+			{ name: 'Documents', href: '/documents', icon: FileText, permission: PERMISSIONS.DOCUMENTS_VIEW },
+			{ name: 'Reviews', href: '/reviews', icon: ClipboardCheck, permission: PERMISSIONS.DOCUMENTS_REVIEW },
+			{ name: 'Automations', href: '/automations', icon: Zap, permission: PERMISSIONS.AUTOMATIONS_VIEW },
 		],
 	},
 	{
 		label: 'Organization',
 		items: [
-			{
-				name: 'Team',
-				href: '/team',
-				icon: UsersRound,
-				permission: PERMISSIONS.TEAM_VIEW,
-			},
-			{
-				name: 'Audit Logs',
-				href: '/audit-logs',
-				icon: History,
-				permission: PERMISSIONS.AUDIT_VIEW,
-			},
-			{
-				name: 'Settings',
-				href: '/settings',
-				icon: Settings,
-				permission: PERMISSIONS.SETTINGS_VIEW,
-			},
+			{ name: 'Team', href: '/team', icon: UsersRound, permission: PERMISSIONS.TEAM_VIEW },
+			{ name: 'Audit Logs', href: '/audit-logs', icon: History, permission: PERMISSIONS.AUDIT_VIEW },
+			{ name: 'Settings', href: '/settings', icon: Settings, permission: PERMISSIONS.SETTINGS_VIEW },
 		],
 	},
 ];
@@ -105,22 +70,22 @@ export function DashboardShell({
 	children: ReactNode;
 	orgSlug: string;
 }) {
-	const pathName = usePathname();
-	const currentOrg = useOrgStore((state) =>
-		state.getCurrentOrgFromSlug(orgSlug),
+	const pathname = usePathname();
+	const currentOrg = useOrgStore((s) => s.getCurrentOrgFromSlug(orgSlug));
+	const isOrgStoreLoaded = useOrgStore((s) => s.isLoaded);
+	const membership = useOrgStore((s) =>
+		currentOrg ? s.getMembershipForOrg(currentOrg.id) : null,
 	);
-	const isOrgStoreLoaded = useOrgStore((state) => state.isLoaded);
-	const membership = useOrgStore((state) =>
-		currentOrg ? state.getMembershipForOrg(currentOrg.id) : null,
+	const currentRole = useOrgStore((s) =>
+		membership?.role_id ? s.roles[membership.role_id] : null,
 	);
-	const currentRole = useOrgStore((state) =>
-		membership?.role_id ? state.roles[membership.role_id] : null,
-	);
+
 	const orgName = currentOrg?.name ?? orgSlug;
 	const logoSrc = getOrgLogoSrc(currentOrg);
+
 	const allowedPermissionCodes = new Set(
 		currentRole?.role_permissions
-			.map((rolePermission) => rolePermission.permissions?.code)
+			.map((rp) => rp.permissions?.code)
 			.filter((code): code is PermissionKey => Boolean(code)) ?? [],
 	);
 
@@ -130,95 +95,121 @@ export function DashboardShell({
 		return allowedPermissionCodes.has(item.permission);
 	};
 
-	const visibleNavigationGroups = navigationGroups
-		.map((group) => ({
-			...group,
-			items: group.items.filter(canViewItem),
-		}))
-		.filter((group) => group.items.length > 0);
+	const visibleGroups = navigationGroups
+		.map((g) => ({ ...g, items: g.items.filter(canViewItem) }))
+		.filter((g) => g.items.length > 0);
 
 	const renderNavItem = (item: NavItem, mobile = false) => {
 		const href = `/${orgSlug}${item.href}`;
-		const isActive = pathName === href || pathName.startsWith(href + '/');
-
-		const className = cn(
-			'flex items-center gap-3 rounded-md text-sm font-medium transition-colors',
-			mobile ? 'px-2 py-2' : 'px-3 py-2',
-			isActive
-				? 'bg-foreground text-background'
-				: 'text-muted-foreground hover:bg-muted hover:text-foreground',
-		);
+		const isActive = pathname === href || pathname.startsWith(href + '/');
 
 		return (
-			<Link key={item.name} href={href} className={className}>
-				<item.icon className='h-4 w-4 shrink-0' />
+			<Link
+				key={item.name}
+				href={href}
+				className={cn(
+					'flex items-center gap-2.5 rounded-md text-[13.5px] transition-colors duration-100',
+					mobile ? 'h-10 px-3' : 'h-8 px-3',
+					isActive
+						? 'bg-brand-50 text-brand-700 font-semibold'
+						: 'text-slate-600 hover:bg-surface-muted hover:text-ink font-medium',
+				)}>
+				<item.icon
+					className={cn(
+						'shrink-0',
+						isActive ? 'text-brand-700' : 'text-slate-400',
+						mobile ? 'h-[15px] w-[15px]' : 'h-[14px] w-[14px]',
+					)}
+				/>
 				<span>{item.name}</span>
 			</Link>
 		);
 	};
 
 	return (
-		<div className='min-h-screen bg-background md:grid md:grid-cols-[260px_1fr]'>
-			<aside className='hidden border-r bg-background md:sticky md:top-0 md:flex md:h-screen md:flex-col'>
-				<div className='flex h-16 items-center border-b px-5'>
-					<Link
-						href={`/${orgSlug}/dashboard`}
-						className='flex min-w-0 items-center gap-2.5'>
-						<div className='flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted'>
-							{logoSrc ? (
-								<img
-									src={logoSrc}
-									alt={`${orgName} logo`}
-									className='h-full w-full object-cover'
-								/>
-							) : (
-								<span className='text-sm font-semibold'>
-									{getOrgInitials(orgName)}
-								</span>
-							)}
-						</div>
-						<span className='truncate text-sm font-semibold'>{orgName}</span>
-					</Link>
-				</div>
+		<div className='min-h-screen bg-surface-page md:grid md:grid-cols-[240px_1fr]'>
 
-				<nav className='flex-1 space-y-6 overflow-y-auto px-3 py-5'>
-					{visibleNavigationGroups.map((group) => (
-						<div key={group.label} className='space-y-2'>
-							<p className='px-3 text-xs font-semibold uppercase text-muted-foreground'>
-								{group.label}
-							</p>
-							<div className='space-y-1'>
-								{group.items.map((item) => renderNavItem(item))}
-							</div>
+			{/* ── Desktop Sidebar ─────────────────────────────────── */}
+			<aside className='hidden border-r border-line bg-white md:sticky md:top-0 md:flex md:h-screen md:flex-col'>
+
+				{/* Org identity header */}
+				<Link
+					href={`/${orgSlug}/dashboard`}
+					className='flex h-14 shrink-0 items-center gap-3 border-b border-line px-4 transition-colors hover:bg-surface-muted/30'>
+					<div className='flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-surface-muted'>
+						{logoSrc ? (
+							<img
+								src={logoSrc}
+								alt={`${orgName} logo`}
+								className='h-full w-full object-cover'
+							/>
+						) : (
+							<span className='text-[11px] font-bold text-ink'>
+								{getOrgInitials(orgName)}
+							</span>
+						)}
+					</div>
+					<div className='min-w-0 flex-1'>
+						<div className='truncate text-[13.5px] font-semibold leading-none text-ink'>
+							{orgName}
 						</div>
-					))}
+						<div className='mt-0.5 text-[11px] leading-none text-slate-400'>
+							Workspace
+						</div>
+					</div>
+				</Link>
+
+				{/* Navigation */}
+				<nav className='no-scrollbar flex-1 overflow-y-auto px-2 py-4'>
+					<div className='space-y-5'>
+						{visibleGroups.map((group) => (
+							<div key={group.label}>
+								<p className='mb-1.5 px-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400'>
+									{group.label}
+								</p>
+								<div className='space-y-0.5'>
+									{group.items.map((item) => renderNavItem(item))}
+								</div>
+							</div>
+						))}
+					</div>
 				</nav>
 
-				<div className='border-t p-3'>
-					<div className='mb-3 flex items-center justify-between'>
-						<ThemeSwitcher />
-						<Button variant='ghost' size='icon' className='relative'>
-							<Bell className='h-4 w-4' />
-							<span className='absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-destructive' />
-						</Button>
-					</div>
+				{/* Sidebar footer */}
+				<div className='shrink-0 border-t border-line px-3 pb-3 pt-2.5'>
 					<DropDown orgSlug={orgSlug} />
-					<div className='mt-4 flex items-center gap-2 px-2 text-xs text-muted-foreground'>
-						<span className='flex h-5 w-5 items-center justify-center rounded bg-foreground'>
-							<Shield className='h-3 w-3 text-background' />
+					<div className='mt-2.5 flex items-center gap-2 px-1'>
+						<div className='flex h-5 w-5 shrink-0 items-center justify-center rounded bg-ink'>
+							<ShieldCheck className='h-3 w-3 text-white' />
+						</div>
+						<span className='text-[11.5px] font-medium text-slate-400'>
+							CareComply
 						</span>
-						<span>CareComply</span>
 					</div>
 				</div>
 			</aside>
 
-			<div className='min-w-0'>
-				<header className='sticky top-0 z-50 border-b bg-background/95 backdrop-blur md:hidden'>
-					<div className='flex h-16 items-center justify-between px-4'>
+			{/* ── Main content column ──────────────────────────────── */}
+			<div className='flex min-w-0 flex-col'>
+
+				{/* Desktop top bar */}
+				<header className='sticky top-0 z-40 hidden h-14 shrink-0 items-center justify-end border-b border-line bg-white px-5 md:flex'>
+					<div className='flex items-center gap-1'>
+						<ThemeSwitcher />
+						<Button variant='ghost' size='icon' className='relative h-8 w-8'>
+							<Bell className='h-4 w-4' />
+							<span className='absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-danger' />
+						</Button>
+					</div>
+				</header>
+
+				{/* Mobile header */}
+				<header className='sticky top-0 z-50 border-b border-line bg-white/95 backdrop-blur md:hidden'>
+					<div className='flex h-14 items-center justify-between px-4'>
 						<Link
 							href={`/${orgSlug}/dashboard`}
 							className='flex min-w-0 items-center gap-2.5'>
-							<div className='flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted'>
+							<div className='flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line bg-surface-muted'>
 								{logoSrc ? (
 									<img
 										src={logoSrc}
@@ -226,40 +217,48 @@ export function DashboardShell({
 										className='h-full w-full object-cover'
 									/>
 								) : (
-									<span className='text-sm font-semibold'>{getOrgInitials(orgName)}</span>
+									<span className='text-[11px] font-bold text-ink'>
+										{getOrgInitials(orgName)}
+									</span>
 								)}
 							</div>
-							<span className='truncate text-sm font-semibold'>{orgName}</span>
+							<span className='truncate text-[13.5px] font-semibold text-ink'>
+								{orgName}
+							</span>
 						</Link>
 
-						<ThemeSwitcher />
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<Button variant='outline' size='icon'>
-									<Menu className='h-4 w-4' />
-								</Button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent align='end' className='w-64'>
-								{visibleNavigationGroups.map((group) => (
-									<div key={group.label}>
-										<DropdownMenuLabel>{group.label}</DropdownMenuLabel>
-										{group.items.map((item) => (
-											<DropdownMenuItem key={item.name} asChild>
-												{renderNavItem(item, true)}
-											</DropdownMenuItem>
-										))}
-										<DropdownMenuSeparator />
+						<div className='flex items-center gap-1'>
+							<ThemeSwitcher />
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button variant='outline' size='icon' className='h-8 w-8'>
+										<Menu className='h-4 w-4' />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align='end' className='w-64'>
+									{visibleGroups.map((group) => (
+										<div key={group.label}>
+											<DropdownMenuLabel className='text-[10.5px] uppercase tracking-[0.12em] text-slate-400'>
+												{group.label}
+											</DropdownMenuLabel>
+											{group.items.map((item) => (
+												<DropdownMenuItem key={item.name} asChild>
+													{renderNavItem(item, true)}
+												</DropdownMenuItem>
+											))}
+											<DropdownMenuSeparator />
+										</div>
+									))}
+									<div className='px-2 py-1'>
+										<DropDown orgSlug={orgSlug} />
 									</div>
-								))}
-								<div className='px-2 py-1'>
-									<DropDown orgSlug={orgSlug} />
-								</div>
-							</DropdownMenuContent>
-						</DropdownMenu>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</div>
 					</div>
 				</header>
 
-				<main className='min-w-0'>{children}</main>
+				<main className='min-w-0 flex-1'>{children}</main>
 			</div>
 		</div>
 	);

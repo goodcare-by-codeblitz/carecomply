@@ -1,6 +1,5 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PersonDetailsForm } from '@/components/carer-profile-card';
 import {
@@ -14,13 +13,6 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import {
 	Dialog,
 	DialogContent,
@@ -39,14 +31,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from '@/components/ui/table';
 import {
 	createInvitationToken,
 	getInvitationLink,
@@ -210,17 +194,17 @@ function normalizeMember(row: unknown): Member {
 	};
 }
 
-function statusVariant(status: InvitationStatus) {
-	if (status === 'pending') return 'default';
-	if (status === 'accepted') return 'secondary';
-	return 'outline';
+function memberStatusCls(status: TeamMemberStatus) {
+	if (status === 'active') return 'bg-ok-50 text-ok';
+	if (status === 'on_leave') return 'bg-brand-50 text-brand-700';
+	if (status === 'suspended') return 'bg-danger-50 text-danger';
+	return 'bg-surface-muted text-slate-600';
 }
 
-function memberStatusVariant(status: TeamMemberStatus) {
-	if (status === 'active') return 'secondary';
-	if (status === 'on_leave') return 'outline';
-	if (status === 'suspended') return 'destructive';
-	return 'outline';
+function inviteStatusCls(status: InvitationStatus) {
+	if (status === 'pending') return 'bg-warn-50 text-warn';
+	if (status === 'accepted') return 'bg-ok-50 text-ok';
+	return 'bg-surface-muted text-slate-600';
 }
 
 function formatMemberStatus(status: TeamMemberStatus) {
@@ -748,7 +732,7 @@ export default function TeamPage() {
 	if (isLoading) {
 		return (
 			<div className='flex min-h-[420px] items-center justify-center p-8'>
-				<Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+				<Loader2 className='h-8 w-8 animate-spin text-slate-400' />
 			</div>
 		);
 	}
@@ -756,433 +740,494 @@ export default function TeamPage() {
 	if (!organization) {
 		return (
 			<div className='p-8'>
-				<Card>
-					<CardContent className='py-12 text-center text-sm text-muted-foreground'>
+				<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+					<div className='py-12 text-center text-[13.5px] text-slate-500'>
 						This organization could not be loaded.
-					</CardContent>
-				</Card>
+					</div>
+				</div>
 			</div>
 		);
 	}
 
 	return (
-		<div className='mx-auto max-w-6xl space-y-6 p-8'>
-			<div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
-				<div>
-					<h1 className='text-2xl font-semibold tracking-tight'>Team</h1>
-					<p className='mt-1 text-sm text-muted-foreground'>
-						Manage people, role assignment, and team invitations for{' '}
-						{organization.name}.
-					</p>
+		<div className='min-h-full'>
+			{/* Page header */}
+			<div className='border-b border-line bg-white px-6 py-5 lg:px-8'>
+				<div className='mx-auto flex max-w-6xl items-center justify-between gap-4'>
+					<div>
+						<h1 className='text-[22px] font-semibold tracking-tight text-ink'>Team</h1>
+						<p className='mt-0.5 text-[13px] text-slate-500'>
+							Manage people, role assignment, and team invitations for{' '}
+							{organization.name}.
+						</p>
+					</div>
+					<Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
+						<DialogTrigger asChild>
+							<Button disabled={!roles.length}>
+								<MailPlus className='h-3.5 w-3.5' />
+								Invite member
+							</Button>
+						</DialogTrigger>
+						<DialogContent className='sm:max-w-md'>
+							<DialogHeader>
+								<div className='mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50'>
+									<MailPlus className='h-4 w-4 text-brand-700' />
+								</div>
+								<DialogTitle className='text-[16px]'>Invite team member</DialogTitle>
+								<DialogDescription className='text-[13px]'>
+									They&apos;ll receive an email with a link to join your organisation.
+								</DialogDescription>
+							</DialogHeader>
+							<form onSubmit={createTeamInvite} className='space-y-4 pt-1'>
+								<div className='space-y-1.5'>
+									<Label htmlFor='invite-email' className='text-[13px] font-medium text-ink'>Work email</Label>
+									<Input
+										id='invite-email'
+										type='email'
+										required
+										value={inviteEmail}
+										onChange={(event) => setInviteEmail(event.target.value)}
+										placeholder='colleague@example.com'
+										className='text-[13.5px]'
+									/>
+								</div>
+								<div className='space-y-1.5'>
+									<Label className='text-[13px] font-medium text-ink'>Role</Label>
+									<Select value={inviteRoleId} onValueChange={setInviteRoleId}>
+										<SelectTrigger className='w-full text-[13.5px]'>
+											<SelectValue placeholder='Choose role' />
+										</SelectTrigger>
+										<SelectContent>
+											{roles.map((role) => (
+												<SelectItem key={role.id} value={role.id}>
+													{role.name}
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+									{selectedInviteRole?.description && (
+										<p className='text-[12px] text-slate-500'>{selectedInviteRole.description}</p>
+									)}
+								</div>
+								{!invitationsReady && (
+									<div className='rounded-xl border border-dashed border-line bg-surface-muted/50 p-3 text-[12.5px] text-slate-500'>
+										{INVITATION_SETUP_MESSAGE}
+									</div>
+								)}
+								<DialogFooter className='pt-1'>
+									<Button
+										type='button'
+										variant='outline'
+										onClick={() => setIsInviteOpen(false)}>
+										Cancel
+									</Button>
+									<Button
+										type='submit'
+										disabled={isInviting || !invitationsReady}>
+										{isInviting ? (
+											<Loader2 className='mr-2 h-3.5 w-3.5 animate-spin' />
+										) : (
+											<MailPlus className='h-3.5 w-3.5' />
+										)}
+										{isInviting ? 'Sending...' : 'Send invite'}
+									</Button>
+								</DialogFooter>
+							</form>
+						</DialogContent>
+					</Dialog>
 				</div>
-				<Dialog open={isInviteOpen} onOpenChange={setIsInviteOpen}>
-					<DialogTrigger asChild>
-						<Button disabled={!roles.length}>
-							<MailPlus className='mr-2 h-4 w-4' />
-							Invite member
-						</Button>
-					</DialogTrigger>
-					<DialogContent>
-						<DialogHeader>
-							<DialogTitle>Invite team member</DialogTitle>
-							<DialogDescription>
-								Team invites are stored in organization_invitations once that
-								table is available.
-							</DialogDescription>
-						</DialogHeader>
-						<form onSubmit={createTeamInvite} className='space-y-4'>
-							<div className='space-y-2'>
-								<Label htmlFor='invite-email'>Email</Label>
-								<Input
-									id='invite-email'
-									type='email'
-									required
-									value={inviteEmail}
-									onChange={(event) => setInviteEmail(event.target.value)}
-									placeholder='colleague@example.com'
-								/>
-							</div>
-							<div className='space-y-2'>
-								<Label>Role</Label>
-								<Select value={inviteRoleId} onValueChange={setInviteRoleId}>
-									<SelectTrigger className='w-full'>
-										<SelectValue placeholder='Choose role' />
-									</SelectTrigger>
-									<SelectContent>
-										{roles.map((role) => (
-											<SelectItem key={role.id} value={role.id}>
-												{role.name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-							{!invitationsReady && (
-								<p className='rounded-md border border-dashed p-3 text-sm text-muted-foreground'>
-									{INVITATION_SETUP_MESSAGE}
-								</p>
-							)}
-							<DialogFooter>
-								<Button
-									type='submit'
-									disabled={isInviting || !invitationsReady}>
-									{isInviting ? 'Creating...' : 'Create invite'}
-								</Button>
-							</DialogFooter>
-						</form>
-					</DialogContent>
-				</Dialog>
 			</div>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Members</CardTitle>
-					<CardDescription>
-						Assign roles here. Create and configure role definitions in
-						Settings.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead>Person</TableHead>
-								<TableHead>Status</TableHead>
-								<TableHead>Role</TableHead>
-								<TableHead className='w-[260px] text-right'>Actions</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{members.map((member) => {
-								const label =
-									member.profile?.full_name ||
-									member.profile?.email ||
-									'Team member';
-								const isCurrentUser = member.user_id === currentUserId;
+			<div className='mx-auto max-w-6xl space-y-6 px-6 py-6 lg:px-8'>
+				{/* Members panel */}
+				<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+					<div className='flex items-center gap-4 border-b border-line bg-surface-page px-5 py-2.5'>
+						<span className='flex-1 text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+							Members
+							<span className='ml-1.5 font-normal normal-case'>({members.length})</span>
+						</span>
+						<span className='hidden text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400 sm:block'>
+							Status
+						</span>
+						<span className='hidden text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400 lg:block'>
+							Role
+						</span>
+						<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+							Actions
+						</span>
+					</div>
 
-								return (
-									<TableRow key={member.id}>
-										<TableCell>
-											<div className='font-medium'>{label}</div>
-											<div className='text-xs text-muted-foreground'>
-												{member.profile?.email ?? member.user_id}
-											</div>
-											{(member.job_title || member.department || member.phone) && (
-												<div className='mt-1 text-xs text-muted-foreground'>
-													{[member.job_title, member.department, member.phone]
+					<div className='divide-y divide-line'>
+						{members.map((member) => {
+							const label =
+								member.profile?.full_name ||
+								member.profile?.email ||
+								'Team member';
+							const initials = label
+								.split(' ')
+								.map((n) => n[0])
+								.join('')
+								.slice(0, 2)
+								.toUpperCase();
+							const isCurrentUser = member.user_id === currentUserId;
+
+							return (
+								<div
+									key={member.id}
+									className='flex flex-wrap items-center gap-3 px-5 py-3.5 transition-colors hover:bg-surface-page'>
+									{/* Avatar */}
+									<div className='flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50'>
+										<span className='text-[11px] font-bold text-brand-700'>{initials}</span>
+									</div>
+									{/* Info */}
+									<div className='min-w-0 flex-1'>
+										<p className='text-[13.5px] font-medium text-ink'>{label}</p>
+										<p className='truncate text-[12px] text-slate-400'>
+											{member.profile?.email ?? member.user_id}
+											{(member.job_title || member.department) && (
+												<>
+													{' '}
+													&middot;{' '}
+													{[member.job_title, member.department]
 														.filter(Boolean)
-														.join(' - ')}
-												</div>
+														.join(', ')}
+												</>
 											)}
-										</TableCell>
-										<TableCell>
-											<Badge variant={memberStatusVariant(member.status)}>
-												{formatMemberStatus(member.status)}
-											</Badge>
-										</TableCell>
-										<TableCell>
-											<Select
-												value={member.role_id ?? ''}
-												onValueChange={(roleId) =>
-													updateMemberRole(member.id, roleId)
-												}
-												disabled={!roles.length}>
-												<SelectTrigger className='w-[220px]'>
-													<SelectValue placeholder='No role assigned' />
-												</SelectTrigger>
-												<SelectContent>
-													{roles.map((role) => (
-														<SelectItem key={role.id} value={role.id}>
-															{role.name}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
-										</TableCell>
-										<TableCell>
-											<div className='flex flex-wrap justify-end gap-2'>
-												<Button
-													type='button'
-													variant='outline'
-													size='sm'
-													onClick={() => openMemberDetails(member)}>
-													<Pencil className='mr-2 h-4 w-4' />
-													Details
-												</Button>
-												{member.status === 'former' ? (
+										</p>
+									</div>
+									{/* Status badge */}
+									<span
+										className={`hidden shrink-0 items-center rounded-full px-2 py-0.5 text-[11px] font-semibold sm:inline-flex ${memberStatusCls(member.status)}`}>
+										{formatMemberStatus(member.status)}
+									</span>
+									{/* Role select */}
+									<div className='hidden lg:block'>
+										<Select
+											value={member.role_id ?? ''}
+											onValueChange={(roleId) =>
+												updateMemberRole(member.id, roleId)
+											}
+											disabled={!roles.length}>
+											<SelectTrigger className='h-8 w-[200px] text-[13px]'>
+												<SelectValue placeholder='No role assigned' />
+											</SelectTrigger>
+											<SelectContent>
+												{roles.map((role) => (
+													<SelectItem key={role.id} value={role.id}>
+														{role.name}
+													</SelectItem>
+												))}
+											</SelectContent>
+										</Select>
+									</div>
+									{/* Actions */}
+									<div className='flex flex-wrap items-center gap-2'>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											className='h-7 text-[12.5px]'
+											onClick={() => openMemberDetails(member)}>
+											<Pencil className='mr-1.5 h-3.5 w-3.5' />
+											Details
+										</Button>
+										{member.status === 'former' ? (
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												className='h-7 text-[12.5px]'
+												onClick={() =>
+													updateMemberStatus(member.id, 'restore_former')
+												}>
+												<RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+												Restore
+											</Button>
+										) : (
+											<>
+												{member.status === 'on_leave' ? (
 													<Button
 														type='button'
 														variant='outline'
 														size='sm'
+														className='h-7 text-[12.5px]'
 														onClick={() =>
-															updateMemberStatus(member.id, 'restore_former')
+															updateMemberStatus(
+																member.id,
+																'return_from_leave',
+															)
 														}>
-														<RefreshCw className='mr-2 h-4 w-4' />
-														Restore
+														<RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+														Return
+													</Button>
+												) : member.status !== 'suspended' ? (
+													<Button
+														type='button'
+														variant='outline'
+														size='sm'
+														className='h-7 text-[12.5px]'
+														onClick={() =>
+															updateMemberStatus(member.id, 'mark_on_leave')
+														}>
+														<Clock className='mr-1.5 h-3.5 w-3.5' />
+														Leave
+													</Button>
+												) : null}
+												{member.status === 'suspended' ? (
+													<Button
+														type='button'
+														variant='outline'
+														size='sm'
+														className='h-7 text-[12.5px]'
+														onClick={() =>
+															updateMemberStatus(
+																member.id,
+																'return_from_suspension',
+															)
+														}>
+														<RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+														Unsuspend
 													</Button>
 												) : (
-													<>
-														{member.status === 'on_leave' ? (
-															<Button
-																type='button'
-																variant='outline'
-																size='sm'
-																onClick={() =>
-																	updateMemberStatus(
-																		member.id,
-																		'return_from_leave',
-																	)
-																}>
-																<RefreshCw className='mr-2 h-4 w-4' />
-																Return
-															</Button>
-														) : member.status !== 'suspended' ? (
-															<Button
-																type='button'
-																variant='outline'
-																size='sm'
-																onClick={() =>
-																	updateMemberStatus(member.id, 'mark_on_leave')
-																}>
-																<Clock className='mr-2 h-4 w-4' />
-																Leave
-															</Button>
-														) : null}
-														{member.status === 'suspended' ? (
-															<Button
-																type='button'
-																variant='outline'
-																size='sm'
-																onClick={() =>
-																	updateMemberStatus(
-																		member.id,
-																		'return_from_suspension',
-																	)
-																}>
-																<RefreshCw className='mr-2 h-4 w-4' />
-																Unsuspend
-															</Button>
-														) : (
-															<Button
-																type='button'
-																variant='outline'
-																size='sm'
-																disabled={isCurrentUser}
-																onClick={() =>
-																	updateMemberStatus(
-																		member.id,
-																		'mark_suspended',
-																	)
-																}>
-																<ShieldAlert className='mr-2 h-4 w-4' />
-																Suspend
-															</Button>
-														)}
-														<AlertDialog>
-															<AlertDialogTrigger asChild>
-																<Button
-																	type='button'
-																	variant='ghost'
-																	size='sm'
-																	disabled={isCurrentUser}
-																	aria-label='Move member to former'>
-																	<UserMinus className='mr-2 h-4 w-4' />
-																	Former
-																</Button>
-															</AlertDialogTrigger>
-															<AlertDialogContent>
-																<AlertDialogHeader>
-																	<AlertDialogTitle>
-																		Move this team member to former?
-																	</AlertDialogTitle>
-																	<AlertDialogDescription>
-																		This removes dashboard access for {label}, but
-																		keeps their profile and activity history.
-																	</AlertDialogDescription>
-																</AlertDialogHeader>
-																<AlertDialogFooter>
-																	<AlertDialogCancel>Cancel</AlertDialogCancel>
-																	<AlertDialogAction
-																		variant='destructive'
-																		onClick={() => removeMember(member.id)}>
-																		Move to former
-																	</AlertDialogAction>
-																</AlertDialogFooter>
-															</AlertDialogContent>
-														</AlertDialog>
-													</>
+													<Button
+														type='button'
+														variant='outline'
+														size='sm'
+														className='h-7 text-[12.5px]'
+														disabled={isCurrentUser}
+														onClick={() =>
+															updateMemberStatus(
+																member.id,
+																'mark_suspended',
+															)
+														}>
+														<ShieldAlert className='mr-1.5 h-3.5 w-3.5' />
+														Suspend
+													</Button>
 												)}
-											</div>
-										</TableCell>
-									</TableRow>
-								);
-							})}
-							{members.length === 0 && (
-								<TableRow>
-									<TableCell
-										colSpan={4}
-										className='py-10 text-center text-sm text-muted-foreground'>
-										No team members found.
-									</TableCell>
-								</TableRow>
-							)}
-						</TableBody>
-					</Table>
-				</CardContent>
-			</Card>
-
-			<Dialog open={Boolean(editingMember)} onOpenChange={(open) => !open && setEditingMember(null)}>
-				<DialogContent className='sm:max-w-2xl'>
-					<DialogHeader>
-						<DialogTitle>Edit team member details</DialogTitle>
-						<DialogDescription>
-							Add operational contact, role context, address, and emergency contact details.
-						</DialogDescription>
-					</DialogHeader>
-					<div className='grid gap-4 py-2 sm:grid-cols-2'>
-						<div className='space-y-2'>
-							<Label htmlFor='member-job-title'>Job title</Label>
-							<Input
-								id='member-job-title'
-								value={memberDetailsForm.jobTitle ?? ''}
-								onChange={(event) =>
-									updateMemberDetailsField('jobTitle', event.target.value)
-								}
-							/>
-						</div>
-						<div className='space-y-2'>
-							<Label htmlFor='member-department'>Department</Label>
-							<Input
-								id='member-department'
-								value={memberDetailsForm.department ?? ''}
-								onChange={(event) =>
-									updateMemberDetailsField('department', event.target.value)
-								}
-							/>
-						</div>
+												<AlertDialog>
+													<AlertDialogTrigger asChild>
+														<Button
+															type='button'
+															variant='ghost'
+															size='sm'
+															className='h-7 text-[12.5px]'
+															disabled={isCurrentUser}
+															aria-label='Move member to former'>
+															<UserMinus className='mr-1.5 h-3.5 w-3.5' />
+															Former
+														</Button>
+													</AlertDialogTrigger>
+													<AlertDialogContent>
+														<AlertDialogHeader>
+															<AlertDialogTitle>
+																Move this team member to former?
+															</AlertDialogTitle>
+															<AlertDialogDescription>
+																This removes dashboard access for {label}, but
+																keeps their profile and activity history.
+															</AlertDialogDescription>
+														</AlertDialogHeader>
+														<AlertDialogFooter>
+															<AlertDialogCancel>Cancel</AlertDialogCancel>
+															<AlertDialogAction
+																variant='destructive'
+																onClick={() => removeMember(member.id)}>
+																Move to former
+															</AlertDialogAction>
+														</AlertDialogFooter>
+													</AlertDialogContent>
+												</AlertDialog>
+											</>
+										)}
+									</div>
+								</div>
+							);
+						})}
+						{members.length === 0 && (
+							<div className='py-12 text-center'>
+								<p className='text-[13.5px] text-slate-500'>No team members found.</p>
+							</div>
+						)}
 					</div>
-					<PersonDetailsForm
-						form={memberDetailsForm as PersonDetailsInput}
-						onChange={(field, value) => updateMemberDetailsField(field, value)}
-					/>
-					<DialogFooter>
-						<Button type='button' variant='outline' onClick={() => setEditingMember(null)}>
-							Cancel
-						</Button>
-						<Button
-							type='button'
-							disabled={isSavingMemberDetails}
-							onClick={saveMemberDetails}>
-							{isSavingMemberDetails ? 'Saving...' : 'Save details'}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
+				</div>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Team Invitations</CardTitle>
-					<CardDescription>
-						Pending, revoked, and expired team invitations.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
-					{!invitationsReady ? (
-						<div className='rounded-md border border-dashed p-5 text-sm text-muted-foreground'>
-							{INVITATION_SETUP_MESSAGE}
+				{/* Edit member details dialog */}
+				<Dialog open={Boolean(editingMember)} onOpenChange={(open) => !open && setEditingMember(null)}>
+					<DialogContent className='sm:max-w-2xl'>
+						<DialogHeader>
+							<div className='mb-1 flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50'>
+								<Pencil className='h-4 w-4 text-brand-700' />
+							</div>
+							<DialogTitle className='text-[16px]'>
+								{editingMember?.profile?.full_name
+									? `Edit ${editingMember.profile.full_name}`
+									: 'Edit team member details'}
+							</DialogTitle>
+							<DialogDescription className='text-[13px]'>
+								Operational contact, role context, address, and emergency contact.
+							</DialogDescription>
+						</DialogHeader>
+						<div className='space-y-4 pt-1'>
+							<div className='rounded-xl border border-line bg-surface-muted/30 p-4'>
+								<p className='mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400'>
+									Role context
+								</p>
+								<div className='grid gap-3 sm:grid-cols-2'>
+									<div className='space-y-1.5'>
+										<Label htmlFor='member-job-title' className='text-[12.5px] text-slate-600'>Job title</Label>
+										<Input
+											id='member-job-title'
+											value={memberDetailsForm.jobTitle ?? ''}
+											onChange={(event) =>
+												updateMemberDetailsField('jobTitle', event.target.value)
+											}
+											className='text-[13.5px]'
+										/>
+									</div>
+									<div className='space-y-1.5'>
+										<Label htmlFor='member-department' className='text-[12.5px] text-slate-600'>Department</Label>
+										<Input
+											id='member-department'
+											value={memberDetailsForm.department ?? ''}
+											onChange={(event) =>
+												updateMemberDetailsField('department', event.target.value)
+											}
+											className='text-[13.5px]'
+										/>
+									</div>
+								</div>
+							</div>
+							<PersonDetailsForm
+								form={memberDetailsForm as PersonDetailsInput}
+								onChange={(field, value) => updateMemberDetailsField(field, value)}
+							/>
 						</div>
-					) : (
-						<div className='space-y-3'>
-							{invitations.map((invite) => (
-								<div
-									key={invite.id}
-									className='flex flex-col gap-3 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between'>
-									<div>
-										<div className='flex flex-wrap items-center gap-2'>
-											<p className='font-medium'>{invite.email}</p>
-											<Badge variant={statusVariant(invite.status)}>
-												{invite.status}
-											</Badge>
+						<DialogFooter>
+							<Button type='button' variant='outline' onClick={() => setEditingMember(null)}>
+								Cancel
+							</Button>
+							<Button
+								type='button'
+								disabled={isSavingMemberDetails}
+								onClick={saveMemberDetails}>
+								{isSavingMemberDetails ? (
+									<Loader2 className='h-3.5 w-3.5 animate-spin' />
+								) : null}
+								{isSavingMemberDetails ? 'Saving...' : 'Save details'}
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+
+				{/* Invitations panel */}
+				<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+					<div className='border-b border-line bg-surface-page px-5 py-2.5'>
+						<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+							Team Invitations
+						</span>
+					</div>
+					<div className='p-5'>
+						{!invitationsReady ? (
+							<div className='rounded-xl border border-dashed border-line p-5 text-[13px] text-slate-500'>
+								{INVITATION_SETUP_MESSAGE}
+							</div>
+						) : (
+							<div className='space-y-3'>
+								{invitations.map((invite) => (
+									<div
+										key={invite.id}
+										className='flex flex-col gap-3 rounded-xl border border-line p-4 sm:flex-row sm:items-center sm:justify-between'>
+										<div>
+											<div className='flex flex-wrap items-center gap-2'>
+												<p className='text-[13.5px] font-medium text-ink'>{invite.email}</p>
+												<span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${inviteStatusCls(invite.status)}`}>
+													{invite.status}
+												</span>
+											</div>
+											<p className='mt-1 text-[12px] text-slate-400'>
+												Expires{' '}
+												{invite.expires_at
+													? new Date(invite.expires_at).toLocaleDateString()
+													: 'when configured'}
+											</p>
 										</div>
-										<p className='mt-1 text-xs text-muted-foreground'>
-											Expires{' '}
-											{invite.expires_at
-												? new Date(invite.expires_at).toLocaleDateString()
-												: 'when configured'}
+										<div className='flex items-center gap-2'>
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												className='h-7 text-[12.5px]'
+												disabled={!invite.token}
+												onClick={() => copyInviteLink(invite.token)}
+												aria-label='Copy invitation link'>
+												<Copy className='mr-1.5 h-3.5 w-3.5' />
+												Copy
+											</Button>
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												className='h-7 text-[12.5px]'
+												onClick={() => resendInvite(invite.id)}
+												aria-label={
+													invite.status === 'revoked'
+														? 'Reinvite team member'
+														: 'Resend invitation'
+												}>
+												<RefreshCw className='mr-1.5 h-3.5 w-3.5' />
+												{invite.status === 'revoked' ? 'Reinvite' : 'Resend'}
+											</Button>
+											<AlertDialog>
+												<AlertDialogTrigger asChild>
+													<Button
+														type='button'
+														variant='ghost'
+														size='sm'
+														className='h-7 text-[12.5px]'
+														disabled={invite.status === 'revoked'}
+														aria-label='Revoke invitation'>
+														<Trash2 className='mr-1.5 h-3.5 w-3.5' />
+														Revoke
+													</Button>
+												</AlertDialogTrigger>
+												<AlertDialogContent>
+													<AlertDialogHeader>
+														<AlertDialogTitle>
+															Revoke this invitation?
+														</AlertDialogTitle>
+														<AlertDialogDescription>
+															The current invitation link for {invite.email} will stop
+															working immediately. You can reinvite them later with a
+															new link.
+														</AlertDialogDescription>
+													</AlertDialogHeader>
+													<AlertDialogFooter>
+														<AlertDialogCancel>Cancel</AlertDialogCancel>
+														<AlertDialogAction
+															variant='destructive'
+															onClick={() => revokeInvite(invite.id)}>
+															Revoke invitation
+														</AlertDialogAction>
+													</AlertDialogFooter>
+												</AlertDialogContent>
+											</AlertDialog>
+										</div>
+									</div>
+								))}
+								{invitations.length === 0 && (
+									<div className='rounded-xl border border-dashed border-line p-8 text-center'>
+										<Shield className='mx-auto mb-3 h-7 w-7 text-slate-300' />
+										<p className='text-[13px] text-slate-400'>
+											No team invitations yet.
 										</p>
 									</div>
-									<div className='flex items-center gap-2'>
-										<Button
-											type='button'
-											variant='outline'
-											size='sm'
-											disabled={!invite.token}
-											onClick={() => copyInviteLink(invite.token)}
-											aria-label='Copy invitation link'>
-											<Copy className='h-4 w-4' />
-											Copy
-										</Button>
-										<Button
-											type='button'
-											variant='outline'
-											size='sm'
-											onClick={() => resendInvite(invite.id)}
-											aria-label={
-												invite.status === 'revoked'
-													? 'Reinvite team member'
-													: 'Resend invitation'
-											}>
-											<RefreshCw className='h-4 w-4' />
-											{invite.status === 'revoked' ? 'Reinvite' : 'Resend'}
-										</Button>
-										<AlertDialog>
-											<AlertDialogTrigger asChild>
-												<Button
-													type='button'
-													variant='ghost'
-													size='sm'
-													disabled={invite.status === 'revoked'}
-													aria-label='Revoke invitation'>
-													<Trash2 className='h-4 w-4' />
-													Revoke
-												</Button>
-											</AlertDialogTrigger>
-											<AlertDialogContent>
-												<AlertDialogHeader>
-													<AlertDialogTitle>
-														Revoke this invitation?
-													</AlertDialogTitle>
-													<AlertDialogDescription>
-														The current invitation link for {invite.email} will stop
-														working immediately. You can reinvite them later with a
-														new link.
-													</AlertDialogDescription>
-												</AlertDialogHeader>
-												<AlertDialogFooter>
-													<AlertDialogCancel>Cancel</AlertDialogCancel>
-													<AlertDialogAction
-														variant='destructive'
-														onClick={() => revokeInvite(invite.id)}>
-														Revoke invitation
-													</AlertDialogAction>
-												</AlertDialogFooter>
-											</AlertDialogContent>
-										</AlertDialog>
-									</div>
-								</div>
-							))}
-							{invitations.length === 0 && (
-								<div className='rounded-md border border-dashed p-8 text-center'>
-									<Shield className='mx-auto mb-3 h-8 w-8 text-muted-foreground/70' />
-									<p className='text-sm text-muted-foreground'>
-										No team invitations yet.
-									</p>
-								</div>
-							)}
-						</div>
-					)}
-				</CardContent>
-			</Card>
+								)}
+							</div>
+						)}
+					</div>
+				</div>
+			</div>
 		</div>
 	);
 }

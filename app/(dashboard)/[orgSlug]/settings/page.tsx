@@ -1,13 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -231,21 +224,21 @@ export default function SettingsProfilePage() {
 	if (isLoading) {
 		return (
 			<div className='flex min-h-[360px] items-center justify-center'>
-				<Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+				<Loader2 className='h-8 w-8 animate-spin text-slate-400' />
 			</div>
 		);
 	}
 
 	if (!organization) {
 		return (
-			<Card>
-				<CardContent className='py-12 text-center'>
-					<Building2 className='mx-auto mb-3 h-10 w-10 text-muted-foreground/60' />
-					<p className='text-sm text-muted-foreground'>
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='py-12 text-center'>
+					<Building2 className='mx-auto mb-3 h-10 w-10 text-slate-300' />
+					<p className='text-[13.5px] text-slate-500'>
 						Organization profile could not be loaded.
 					</p>
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 		);
 	}
 
@@ -253,16 +246,17 @@ export default function SettingsProfilePage() {
 
 	return (
 		<div className='space-y-6'>
-			<Card>
-				<CardHeader>
-					<CardTitle>Logo</CardTitle>
-					<CardDescription>
+			{/* Logo card */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+					<p className='text-[14px] font-semibold text-ink'>Logo</p>
+					<p className='mt-0.5 text-[12.5px] text-slate-500'>
 						Upload a square logo for navigation and workspace pages.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className='space-y-5'>
+					</p>
+				</div>
+				<div className='space-y-5 p-5'>
 					<div className='flex items-center gap-4'>
-						<div className='flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border bg-muted'>
+						<div className='flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border border-line bg-surface-muted'>
 							{logoSrc ? (
 								<img
 									src={logoSrc}
@@ -270,21 +264,21 @@ export default function SettingsProfilePage() {
 									className='h-full w-full object-cover'
 								/>
 							) : (
-								<span className='text-lg font-semibold'>
+								<span className='text-lg font-semibold text-ink'>
 									{getOrgInitials(organization.name)}
 								</span>
 							)}
 						</div>
 						<div>
-							<p className='text-sm font-medium'>{organization.name}</p>
-							<p className='text-xs text-muted-foreground'>
-								Used in the app navigation.
-							</p>
+							<p className='text-[13.5px] font-medium text-ink'>{organization.name}</p>
+							<p className='text-[12px] text-slate-400'>Used in the app navigation.</p>
 						</div>
 					</div>
 
 					<div className='space-y-2'>
-						<Label htmlFor='org-logo'>Upload logo</Label>
+						<Label htmlFor='org-logo' className='text-[13px] font-medium text-ink'>
+							Upload logo
+						</Label>
 						<div className='flex items-center gap-3'>
 							<Input
 								id='org-logo'
@@ -292,12 +286,14 @@ export default function SettingsProfilePage() {
 								accept='image/*'
 								onChange={handleLogoChange}
 								disabled={isUploadingLogo}
+								className='text-[13.5px]'
 							/>
 							<Button
 								type='button'
 								variant='outline'
 								disabled={isUploadingLogo}
-								onClick={() => document.getElementById('org-logo')?.click()}>
+								onClick={() => document.getElementById('org-logo')?.click()}
+								className='shrink-0'>
 								{isUploadingLogo ? (
 									<Loader2 className='mr-2 h-4 w-4 animate-spin' />
 								) : (
@@ -307,37 +303,48 @@ export default function SettingsProfilePage() {
 							</Button>
 						</div>
 					</div>
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Organization Profile</CardTitle>
-					<CardDescription>
+			{/* Organization profile card */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+					<p className='text-[14px] font-semibold text-ink'>Organization Profile</p>
+					<p className='mt-0.5 text-[12.5px] text-slate-500'>
 						This branding appears in navigation and workspace pages.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
+					</p>
+				</div>
+				<div className='p-5'>
 					<form onSubmit={handleSaveName} className='space-y-4'>
 						<div className='space-y-2'>
-							<Label htmlFor='org-name'>Organization name</Label>
+							<Label htmlFor='org-name' className='text-[13px] font-medium text-ink'>
+								Organization name
+							</Label>
 							<Input
 								id='org-name'
 								value={name}
 								onChange={(event) => setName(event.target.value)}
 								placeholder='Your organization name'
+								className='text-[13.5px]'
 							/>
 						</div>
 						<div className='space-y-2'>
-							<Label>Organization slug</Label>
-							<Input value={organization.slug} readOnly className='bg-muted/50' />
+							<Label className='text-[13px] font-medium text-ink'>Organization slug</Label>
+							<Input
+								value={organization.slug}
+								readOnly
+								className='bg-surface-muted/50 text-slate-500'
+							/>
 						</div>
-						<Button type='submit' disabled={isSavingName}>
+						<Button
+							type='submit'
+							disabled={isSavingName}
+							className='text-[13.5px]'>
 							{isSavingName ? 'Saving...' : 'Save profile'}
 						</Button>
 					</form>
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 		</div>
 	);
 }

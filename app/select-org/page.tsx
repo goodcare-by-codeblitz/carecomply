@@ -1,5 +1,7 @@
 import { getUserOrganizationsResult } from '@/lib/orgs';
+import { getPlatformAccessForUser } from '@/lib/platform-admin';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { Building2, ArrowRight } from 'lucide-react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
@@ -40,6 +42,10 @@ async function SelectOrgContent() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) { redirect('/auth/login'); }
+
+  const admin = createAdminClient();
+  const platformAccess = await getPlatformAccessForUser(admin, user.id);
+  if (platformAccess.canAccessAdmin) { redirect('/admin/reminders'); }
 
   const organizationsResult = await getUserOrganizationsResult(supabase, user.id);
 

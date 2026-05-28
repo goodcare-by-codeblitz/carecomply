@@ -31,6 +31,14 @@ export default function CreateOrgPage() {
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
+  // Redirect platform admins away from tenant org creation
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.from('platform_memberships').select('id').maybeSingle().then(({ data }) => {
+      if (data) router.replace('/admin/reminders');
+    });
+  }, [router]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const orgNameParam = params.get('orgName');

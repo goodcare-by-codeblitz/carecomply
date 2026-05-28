@@ -1,14 +1,6 @@
 'use client';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -313,20 +305,23 @@ export default function DocumentSettingsPage() {
 
 	return (
 		<div className='space-y-6'>
-			<Card>
-				<CardHeader>
-					<CardTitle>Carer Document Requirements</CardTitle>
-					<CardDescription>
+			{/* Create / edit form */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+					<p className='text-[14px] font-semibold text-ink'>Carer Document Requirements</p>
+					<p className='mt-0.5 text-[12.5px] text-slate-500'>
 						Define the documents carers must upload during onboarding.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
+					</p>
+				</div>
+				<div className='p-5'>
 					<form
 						onSubmit={saveDocumentType}
-						className='grid gap-4 rounded-md border p-4'>
+						className='rounded-xl border border-line p-4'>
 						<div className='grid gap-4 md:grid-cols-2'>
 							<div className='space-y-2'>
-								<Label htmlFor='document-name'>Document name</Label>
+								<Label htmlFor='document-name' className='text-[13px] font-medium text-ink'>
+									Document name
+								</Label>
 								<Input
 									id='document-name'
 									value={form.name}
@@ -337,10 +332,13 @@ export default function DocumentSettingsPage() {
 										}))
 									}
 									placeholder='DBS certificate'
+									className='text-[13.5px]'
 								/>
 							</div>
 							<div className='space-y-2'>
-								<Label htmlFor='expiry-months'>Expiry cycle months</Label>
+								<Label htmlFor='expiry-months' className='text-[13px] font-medium text-ink'>
+									Expiry cycle months
+								</Label>
 								<Input
 									id='expiry-months'
 									type='number'
@@ -353,11 +351,14 @@ export default function DocumentSettingsPage() {
 										}))
 									}
 									placeholder='12'
+									className='text-[13.5px]'
 								/>
 							</div>
 						</div>
-						<div className='space-y-2'>
-							<Label htmlFor='document-description'>Description</Label>
+						<div className='mt-4 space-y-2'>
+							<Label htmlFor='document-description' className='text-[13px] font-medium text-ink'>
+								Description
+							</Label>
 							<Textarea
 								id='document-description'
 								value={form.description}
@@ -369,9 +370,10 @@ export default function DocumentSettingsPage() {
 								}
 								placeholder='Optional guidance shown to admins'
 								rows={3}
+								className='text-[13.5px]'
 							/>
 						</div>
-						<label className='flex items-center gap-3 text-sm'>
+						<label className='mt-4 flex items-center gap-3 text-[13px] text-ink'>
 							<Checkbox
 								checked={form.isRequired}
 								onCheckedChange={(value) =>
@@ -383,7 +385,7 @@ export default function DocumentSettingsPage() {
 							/>
 							Required for onboarding completion
 						</label>
-						<div className='flex flex-col gap-2 sm:flex-row'>
+						<div className='mt-4 flex flex-col gap-2 sm:flex-row'>
 							<Button type='submit' disabled={isSaving}>
 								{isSaving ? (
 									<Loader2 className='mr-2 h-4 w-4 animate-spin' />
@@ -400,40 +402,47 @@ export default function DocumentSettingsPage() {
 							)}
 						</div>
 					</form>
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Configured Requirements</CardTitle>
-					<CardDescription>
-						These document types appear in the carer onboarding portal.
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
+			{/* Configured document types */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-2.5'>
+					<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+						Configured Requirements
+					</span>
+					<span className='ml-1.5 text-[11.5px] font-normal text-slate-400'>
+						— These document types appear in the carer onboarding portal.
+					</span>
+				</div>
+				<div className='p-5'>
 					{isLoading ? (
 						<div className='flex justify-center py-8'>
-							<Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
+							<Loader2 className='h-6 w-6 animate-spin text-slate-400' />
 						</div>
 					) : documentTypes.length > 0 ? (
 						<div className='space-y-3'>
 							{documentTypes.map((documentType) => (
 								<div
 									key={documentType.id}
-									className='flex flex-col gap-4 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between'>
+									className='flex flex-col gap-4 rounded-xl border border-line p-4 sm:flex-row sm:items-center sm:justify-between'>
 									<div className='min-w-0'>
 										<div className='flex flex-wrap items-center gap-2'>
-											<FileCheck2 className='h-4 w-4 text-muted-foreground' />
-											<p className='font-medium'>{documentType.name}</p>
-											{documentType.is_required && <Badge>Required</Badge>}
+											<FileCheck2 className='h-4 w-4 text-slate-400' />
+											<p className='text-[13.5px] font-medium text-ink'>{documentType.name}</p>
+											{documentType.is_required && (
+												<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-brand-50 text-brand-700'>
+													Required
+												</span>
+											)}
 											{documentType.expiry_months && (
-												<Badge variant='outline'>
+												<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-surface-muted text-slate-600'>
 													Expires every {documentType.expiry_months} months
-												</Badge>
+												</span>
 											)}
 										</div>
 										{documentType.description && (
-											<p className='mt-1 text-sm text-muted-foreground'>
+											<p className='mt-1 text-[12.5px] text-slate-400'>
 												{documentType.description}
 											</p>
 										)}
@@ -443,20 +452,22 @@ export default function DocumentSettingsPage() {
 											type='button'
 											variant='outline'
 											size='sm'
+											className='h-7 text-[12.5px]'
 											onClick={() => editDocumentType(documentType)}>
-											<Pencil className='mr-2 h-4 w-4' />
+											<Pencil className='mr-1.5 h-3.5 w-3.5' />
 											Edit
 										</Button>
 										<Button
 											type='button'
 											variant='outline'
 											size='sm'
+											className='h-7 text-[12.5px]'
 											disabled={deletingId === documentType.id}
 											onClick={() => deleteDocumentType(documentType)}>
 											{deletingId === documentType.id ? (
-												<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+												<Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
 											) : (
-												<Trash2 className='mr-2 h-4 w-4' />
+												<Trash2 className='mr-1.5 h-3.5 w-3.5' />
 											)}
 											Delete
 										</Button>
@@ -465,27 +476,30 @@ export default function DocumentSettingsPage() {
 							))}
 						</div>
 					) : (
-						<div className='rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground'>
-							No document requirements have been configured yet.
+						<div className='rounded-xl border border-dashed border-line p-8 text-center'>
+							<p className='text-[13px] text-slate-400'>
+								No document requirements have been configured yet.
+							</p>
 						</div>
 					)}
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 
-			<Card>
-				<CardHeader>
-					<CardTitle>Reference Requirements</CardTitle>
-					<CardDescription>
+			{/* Reference requirements */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+					<p className='text-[14px] font-semibold text-ink'>Reference Requirements</p>
+					<p className='mt-0.5 text-[12.5px] text-slate-500'>
 						Configure how many work and character references carers must submit during
 						onboarding. Each required type counts toward their compliance progress.
-					</CardDescription>
-				</CardHeader>
-				<CardContent className='space-y-6'>
-					<div className='space-y-4 rounded-md border p-4'>
+					</p>
+				</div>
+				<div className='space-y-5 p-5'>
+					<div className='space-y-4 rounded-xl border border-line p-4'>
 						<div className='flex items-center justify-between'>
 							<div>
-								<p className='text-sm font-medium'>Work References</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[13.5px] font-medium text-ink'>Work References</p>
+								<p className='text-[12px] text-slate-400'>
 									References from previous employers or professional contacts.
 								</p>
 							</div>
@@ -493,7 +507,9 @@ export default function DocumentSettingsPage() {
 						</div>
 						{requireWork && (
 							<div className='space-y-2'>
-								<Label htmlFor='work-ref-count'>Number required</Label>
+								<Label htmlFor='work-ref-count' className='text-[13px] font-medium text-ink'>
+									Number required
+								</Label>
 								<Input
 									id='work-ref-count'
 									type='number'
@@ -501,17 +517,17 @@ export default function DocumentSettingsPage() {
 									max='5'
 									value={workCount}
 									onChange={(e) => setWorkCount(e.target.value)}
-									className='w-24'
+									className='w-24 text-[13.5px]'
 								/>
 							</div>
 						)}
 					</div>
 
-					<div className='space-y-4 rounded-md border p-4'>
+					<div className='space-y-4 rounded-xl border border-line p-4'>
 						<div className='flex items-center justify-between'>
 							<div>
-								<p className='text-sm font-medium'>Character References</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[13.5px] font-medium text-ink'>Character References</p>
+								<p className='text-[12px] text-slate-400'>
 									References from someone who can vouch for the carer&apos;s character.
 								</p>
 							</div>
@@ -519,7 +535,9 @@ export default function DocumentSettingsPage() {
 						</div>
 						{requireChar && (
 							<div className='space-y-2'>
-								<Label htmlFor='char-ref-count'>Number required</Label>
+								<Label htmlFor='char-ref-count' className='text-[13px] font-medium text-ink'>
+									Number required
+								</Label>
 								<Input
 									id='char-ref-count'
 									type='number'
@@ -527,7 +545,7 @@ export default function DocumentSettingsPage() {
 									max='5'
 									value={charCount}
 									onChange={(e) => setCharCount(e.target.value)}
-									className='w-24'
+									className='w-24 text-[13.5px]'
 								/>
 							</div>
 						)}
@@ -537,8 +555,8 @@ export default function DocumentSettingsPage() {
 						{isSavingRefs && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
 						Save reference requirements
 					</Button>
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 		</div>
 	);
 }

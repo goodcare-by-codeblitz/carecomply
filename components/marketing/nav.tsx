@@ -2,10 +2,10 @@
 
 import * as React from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Menu, X, ChevronDown, ArrowRight,
+  Menu, X, ChevronDown,
   ListChecks, Mail, Bell, FileCheck, Users, ShieldCheck,
   BookOpen, Send,
 } from 'lucide-react';
@@ -13,6 +13,15 @@ import { cn } from '@/lib/utils';
 import { Logo } from './logo';
 import { Container } from './ui/container';
 import { MButton } from './ui/button';
+import { createClient } from '@/lib/supabase/client';
+
+function getInitials(str: string): string {
+  const parts = str.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return str.slice(0, 2).toUpperCase();
+}
+
+type AuthUser = { name: string; email: string };
 
 /* ─── Product dropdown items ─────────────────────────────────────────────── */
 const PRODUCT_ITEMS = [
@@ -80,7 +89,30 @@ function DropdownMenu({
 /* ─── Main nav ─────────────────────────────────────────────────────────────── */
 export function TopNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [authUser, setAuthUser] = React.useState<AuthUser | null>(null);
+
+  // Check Supabase session from browser cookies — no server round-trip needed.
+  // appPath is always /select-org; the page-level guard there redirects platform admins.
+  React.useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        const name = (session.user.user_metadata?.full_name as string | undefined) ?? '';
+        const email = session.user.email ?? '';
+        setAuthUser({ name, email });
+      } else {
+        setAuthUser(null);
+      }
+    });
+  }, []);
+
+  const handleSignOut = React.useCallback(async () => {
+    await fetch('/auth/logout', { method: 'POST' });
+    router.push('/');
+    router.refresh();
+  }, [router]);
   const [activeMenu, setActiveMenu] = React.useState<'product' | 'resources' | null>(null);
   const navRef = React.useRef<HTMLDivElement>(null);
 
@@ -187,17 +219,39 @@ export function TopNav() {
 
         {/* Right: CTAs */}
         <div className="flex items-center gap-2">
-          <Link
-            href="/auth/login"
-            className="hidden sm:inline-flex h-9 px-3 text-sm text-slate-700 hover:text-ink rounded-md focus-ring items-center">
-            Sign in
-          </Link>
-          <MButton size="sm" variant="secondary" as={Link} href="/demo" className="hidden sm:inline-flex">
-            Book a demo
-          </MButton>
-          <MButton size="sm" variant="brand" as={Link} href="/auth/sign-up">
-            Start free trial
-          </MButton>
+          {authUser ? (
+            <>
+              <div
+                className="hidden sm:flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-ink text-white text-[11px] font-semibold"
+                aria-hidden="true">
+                {getInitials(authUser.name || authUser.email)}
+              </div>
+              <Link
+                href="/select-org"
+                className="hidden sm:inline-flex h-9 px-3 text-sm text-slate-700 hover:text-ink rounded-md focus-ring items-center">
+                Go to app
+              </Link>
+              <button
+                onClick={handleSignOut}
+                className="hidden sm:inline-flex h-9 px-3 text-sm text-slate-700 hover:text-ink rounded-md focus-ring items-center">
+                Sign out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/auth/login"
+                className="hidden sm:inline-flex h-9 px-3 text-sm text-slate-700 hover:text-ink rounded-md focus-ring items-center">
+                Sign in
+              </Link>
+              <MButton size="sm" variant="secondary" as={Link} href="/demo" className="hidden sm:inline-flex">
+                Book a demo
+              </MButton>
+              <MButton size="sm" variant="brand" as={Link} href="/auth/sign-up">
+                Start free trial
+              </MButton>
+            </>
+          )}
 
           {/* Mobile menu toggle */}
           <button
@@ -245,11 +299,26 @@ export function TopNav() {
                 </Link>
               ))}
               <div className="h-px bg-line my-1" role="separator" />
-              <Link
-                href="/auth/login"
-                className="px-3 py-2.5 rounded-lg text-[14px] text-slate-700 hover:bg-surface-page">
-                Sign in
-              </Link>
+              {authUser ? (
+                <>
+                  <Link
+                    href="/select-org"
+                    className="px-3 py-2.5 rounded-lg text-[14px] text-slate-700 hover:bg-surface-page">
+                    Go to app
+                  </Link>
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full text-left px-3 py-2.5 rounded-lg text-[14px] text-slate-700 hover:bg-surface-page">
+                    Sign out
+                  </button>
+                </>
+              ) : (
+                <Link
+                  href="/auth/login"
+                  className="px-3 py-2.5 rounded-lg text-[14px] text-slate-700 hover:bg-surface-page">
+                  Sign in
+                </Link>
+              )}
             </Container>
           </motion.nav>
         )}

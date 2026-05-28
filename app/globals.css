@@ -300,6 +300,42 @@
   }
 }
 
+/* ─── Dashboard polish ───────────────────────────────────────────────────── */
+@layer utilities {
+  /* Premium table row hover — subtle directional lift */
+  .dash-row:hover {
+    background-color: #F8FAFC;
+  }
+
+  /* Metric card hover lift */
+  .metric-card:hover {
+    box-shadow: var(--shadow-lift);
+  }
+
+  /* Status badges — reusable across dashboard */
+  .badge-ok      { @apply bg-ok-50 text-ok; }
+  .badge-warn    { @apply bg-warn-50 text-warn; }
+  .badge-danger  { @apply bg-danger-50 text-danger; }
+  .badge-brand   { @apply bg-brand-50 text-brand-700; }
+  .badge-neutral { @apply bg-surface-muted text-slate-600; }
+
+  /* Clean page container pattern */
+  .dash-page {
+    @apply min-h-full;
+  }
+  .dash-header {
+    @apply border-b border-line bg-white px-6 py-5 lg:px-8;
+  }
+  .dash-content {
+    @apply mx-auto max-w-7xl px-6 py-6 lg:px-8;
+  }
+
+  /* Skeleton shimmer */
+  .skeleton {
+    @apply animate-pulse rounded bg-surface-muted;
+  }
+}
+
 /* ─── Text selection ─────────────────────────────────────────────────────── */
 ::selection {
   background: #DBE5FF;

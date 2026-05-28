@@ -1,13 +1,6 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import {
 	Select,
@@ -304,49 +297,49 @@ export default function BillingSettingsPage() {
 	if (isResolvingOrg) {
 		return (
 			<div className='flex min-h-[360px] items-center justify-center'>
-				<Loader2 className='h-8 w-8 animate-spin text-muted-foreground' />
+				<Loader2 className='h-8 w-8 animate-spin text-slate-400' />
 			</div>
 		);
 	}
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Billing</CardTitle>
-				<CardDescription>
+		<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+			<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+				<h2 className='text-[14px] font-semibold text-ink'>Billing</h2>
+				<p className='mt-0.5 text-[12.5px] text-slate-500'>
 					Manage your organization subscription and Stripe billing details.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className='space-y-8'>
+				</p>
+			</div>
+			<div className='p-5 space-y-8'>
 				{isConfirmingCheckout && (
-					<div className='flex items-center gap-2 rounded-md border border-border bg-muted px-4 py-3 text-sm text-muted-foreground'>
-						<Loader2 className='h-4 w-4 animate-spin shrink-0' />
+					<div className='flex items-center gap-2 rounded-xl border border-line bg-surface-muted px-4 py-3 text-[13.5px] font-medium text-ink'>
+						<Loader2 className='h-4 w-4 animate-spin shrink-0 text-slate-400' />
 						<span>Confirming your payment with Stripe. This usually takes a few seconds...</span>
 					</div>
 				)}
-				<div className='flex flex-col gap-4 rounded-md border p-4 sm:flex-row sm:items-center sm:justify-between'>
+				<div className='flex flex-col gap-4 rounded-xl border border-line p-4 sm:flex-row sm:items-center sm:justify-between'>
 					<div className='flex items-center gap-3'>
-						<div className='flex h-10 w-10 items-center justify-center rounded-md bg-muted'>
-							<CreditCard className='h-5 w-5 text-muted-foreground' />
+						<div className='flex h-10 w-10 items-center justify-center rounded-xl bg-surface-muted'>
+							<CreditCard className='h-5 w-5 text-slate-500' />
 						</div>
 						<div>
-							<p className='font-medium'>
+							<p className='text-[13.5px] font-medium text-ink'>
 								{isLoadingBilling
 									? 'Loading billing...'
 									: `${billingPlan?.name ?? billing.plan} plan`}
 							</p>
-							<p className='text-sm text-muted-foreground'>
+							<p className='text-[12.5px] text-slate-500'>
 								Status: {billing.status.replace('_', ' ')}
 								{billing.interval ? ` - ${billing.interval}` : ''}
 							</p>
 							{formattedPeriodEnd && (
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[12px] text-slate-400'>
 									{billing.cancel_at_period_end ? 'Ends' : 'Renews'} on{' '}
 									{formattedPeriodEnd}
 								</p>
 							)}
 							{formattedTrialStart && formattedTrialEnd && (
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[12px] text-slate-400'>
 									Trial: {formattedTrialStart} to {formattedTrialEnd}
 								</p>
 							)}
@@ -363,55 +356,55 @@ export default function BillingSettingsPage() {
 					</Button>
 				</div>
 				{billing.stripe_subscription_id && (
-					<p className='text-xs text-muted-foreground'>
+					<p className='text-[12px] text-slate-400'>
 						Stripe subscription: {billing.stripe_subscription_id}
 					</p>
 				)}
 				{priceEstimate && (
-					<div className='rounded-md border p-4'>
+					<div className='rounded-xl border border-line p-4'>
 						<div className='mb-4'>
-							<h3 className='text-sm font-medium'>Active carer pricing</h3>
-							<p className='text-sm text-muted-foreground'>
+							<h3 className='text-[13.5px] font-medium text-ink'>Active carer pricing</h3>
+							<p className='text-[12.5px] text-slate-500'>
 								Estimated app total. Stripe currently bills the base package price only.
 							</p>
 						</div>
 						<div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
-							<div className='rounded-md bg-muted/40 p-3'>
-								<p className='text-xs text-muted-foreground'>Active carers</p>
+							<div className='rounded-xl bg-surface-muted/50 p-3'>
+								<p className='text-[12px] text-slate-400'>Active carers</p>
 								<p className='text-xl font-semibold'>
 									{priceEstimate.activeCarers}
 								</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[12px] text-slate-400'>
 									{priceEstimate.includedActiveCarers} included
 								</p>
 							</div>
-							<div className='rounded-md bg-muted/40 p-3'>
-								<p className='text-xs text-muted-foreground'>Extra carers</p>
+							<div className='rounded-xl bg-surface-muted/50 p-3'>
+								<p className='text-[12px] text-slate-400'>Extra carers</p>
 								<p className='text-xl font-semibold'>
 									{priceEstimate.extraActiveCarers}
 								</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[12px] text-slate-400'>
 									{formatCurrency(priceEstimate.extraActiveCarerPrice)} per extra active carer
 								</p>
 							</div>
-							<div className='rounded-md bg-muted/40 p-3'>
-								<p className='text-xs text-muted-foreground'>Monthly estimate</p>
+							<div className='rounded-xl bg-surface-muted/50 p-3'>
+								<p className='text-[12px] text-slate-400'>Monthly estimate</p>
 								<p className='text-xl font-semibold'>
 									{formatCurrency(priceEstimate.totalMonthlyAmount)}
 								</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[12px] text-slate-400'>
 									{formatCurrency(priceEstimate.baseMonthlyPrice)} base
 									{priceEstimate.monthlyOverageAmount > 0
 										? ` + ${formatCurrency(priceEstimate.monthlyOverageAmount)} overage`
 										: ''}
 								</p>
 							</div>
-							<div className='rounded-md bg-muted/40 p-3'>
-								<p className='text-xs text-muted-foreground'>Yearly estimate</p>
+							<div className='rounded-xl bg-surface-muted/50 p-3'>
+								<p className='text-[12px] text-slate-400'>Yearly estimate</p>
 								<p className='text-xl font-semibold'>
 									{formatCurrency(priceEstimate.totalYearlyAmount)}
 								</p>
-								<p className='text-xs text-muted-foreground'>
+								<p className='text-[12px] text-slate-400'>
 									{formatCurrency(priceEstimate.baseYearlyPrice)} base
 									{priceEstimate.yearlyOverageAmount > 0
 										? ` + ${formatCurrency(priceEstimate.yearlyOverageAmount)} overage`
@@ -421,10 +414,10 @@ export default function BillingSettingsPage() {
 						</div>
 					</div>
 				)}
-				<div className='rounded-md border p-4'>
+				<div className='rounded-xl border border-line p-4'>
 					<div className='mb-4'>
-						<h3 className='text-sm font-medium'>Change plan</h3>
-						<p className='text-sm text-muted-foreground'>
+						<h3 className='text-[13.5px] font-medium text-ink'>Change plan</h3>
+						<p className='text-[12.5px] text-slate-500'>
 							Choose a package and interval. Existing subscriptions are updated
 							with Stripe proration instead of creating another subscription.
 						</p>
@@ -488,12 +481,12 @@ export default function BillingSettingsPage() {
 						</Button>
 					</div>
 					{selectedPlan && (
-						<p className='mt-3 text-xs text-muted-foreground'>
+						<p className='mt-3 text-[12px] text-slate-400'>
 							{selectedPlan.description}
 						</p>
 					)}
 				</div>
-			</CardContent>
-		</Card>
+			</div>
+		</div>
 	);
 }

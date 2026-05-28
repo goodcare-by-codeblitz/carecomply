@@ -1,22 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-	CardDescription,
-} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from '@/components/ui/table';
 import {
 	ArrowLeft,
 	Mail,
@@ -47,13 +31,28 @@ function formatReferenceStatus(status: string | null) {
 }
 
 function referenceStatusClass(status: string | null) {
-	if (status === 'approved')
-		return 'bg-green-50 text-green-700 border-green-200';
-	if (status === 'responded') return 'bg-blue-50 text-blue-700 border-blue-200';
-	if (status === 'requested')
-		return 'bg-amber-50 text-amber-700 border-amber-200';
-	if (status === 'rejected') return 'bg-red-50 text-red-700 border-red-200';
-	return 'bg-muted text-muted-foreground';
+	if (status === 'approved') return 'bg-ok-50 text-ok';
+	if (status === 'responded') return 'bg-brand-50 text-brand-700';
+	if (status === 'requested') return 'bg-warn-50 text-warn';
+	if (status === 'rejected') return 'bg-danger-50 text-danger';
+	return 'bg-surface-muted text-slate-600';
+}
+
+function carerStatusClass(status: string) {
+	if (status === 'active') return 'bg-ok-50 text-ok';
+	if (status === 'pending') return 'bg-warn-50 text-warn';
+	if (status === 'expired') return 'bg-danger-50 text-danger';
+	if (status === 'on_leave') return 'bg-brand-50 text-brand-700';
+	if (status === 'suspended') return 'bg-danger-50 text-danger';
+	if (status === 'former') return 'bg-surface-muted text-slate-600';
+	return 'bg-surface-muted text-slate-600';
+}
+
+function docStatusClass(status: string) {
+	if (status === 'approved') return 'bg-ok-50 text-ok';
+	if (status === 'pending') return 'bg-warn-50 text-warn';
+	if (status === 'rejected') return 'bg-danger-50 text-danger';
+	return 'bg-surface-muted text-slate-600';
 }
 
 function formatDate(value: string | null) {
@@ -136,113 +135,95 @@ export default async function CarerPage({ params }: CarerPageProps) {
 	);
 
 	return (
-		<div className='p-8 max-w-7xl mx-auto'>
-			{/* Back link */}
-			<Link
-				href={`/${orgSlug}/carers`}
-				className='inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground mb-6 transition-colors'>
-				<ArrowLeft className='w-4 h-4' />
-				Back to carers
-			</Link>
-
-			{/* Header */}
-			<div className='flex items-start justify-between mb-8'>
-				<div className='flex items-center gap-5'>
-					<div className='w-16 h-16 rounded-2xl bg-muted flex items-center justify-center'>
-						<span className='text-xl font-semibold'>{initials}</span>
-					</div>
-					<div>
-						<h1 className='text-2xl font-semibold tracking-tight'>
-							{carer.full_name}
-						</h1>
-						<div className='flex items-center gap-4 mt-2 text-sm text-muted-foreground'>
-							<span className='flex items-center gap-1.5'>
-								<Mail className='w-4 h-4' />
-								{carer.email}
-							</span>
-							{carer.phone && (
-								<span className='flex items-center gap-1.5'>
-									<Phone className='w-4 h-4' />
-									{carer.phone}
+		<div className='min-h-full'>
+			{/* Page header */}
+			<div className='border-b border-line bg-white px-6 py-5 lg:px-8'>
+				<div className='mx-auto max-w-7xl'>
+					<Link
+						href={`/${orgSlug}/carers`}
+						className='inline-flex items-center gap-1.5 text-[13px] text-slate-500 hover:text-ink mb-3 transition-colors'>
+						<ArrowLeft className='h-3.5 w-3.5' />
+						Back to carers
+					</Link>
+					<div className='flex items-start justify-between'>
+						<div className='flex items-center gap-4'>
+							<div className='flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50'>
+								<span className='text-[18px] font-semibold text-brand-700'>
+									{initials}
 								</span>
-							)}
+							</div>
+							<div>
+								<h1 className='text-[22px] font-semibold tracking-tight text-ink'>
+									{carer.full_name}
+								</h1>
+								<div className='flex items-center gap-4 mt-1 text-[13px] text-slate-500'>
+									<span className='flex items-center gap-1.5'>
+										<Mail className='h-3.5 w-3.5' />
+										{carer.email}
+									</span>
+									{carer.phone && (
+										<span className='flex items-center gap-1.5'>
+											<Phone className='h-3.5 w-3.5' />
+											{carer.phone}
+										</span>
+									)}
+								</div>
+							</div>
+						</div>
+						<div className='flex flex-col items-end gap-2.5'>
+							<span
+								className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${carerStatusClass(carer.status)}`}>
+								{carer.status
+									.replace(/_/g, ' ')
+									.replace(/^\w/, (char: string) => char.toUpperCase())}
+							</span>
+							<CarerStatusActions carerId={carer.id} status={carer.status} />
 						</div>
 					</div>
 				</div>
-				<div className='flex flex-col items-end gap-3'>
-					<span
-						className={`text-sm px-3 py-1.5 rounded-full font-medium ${
-							carer.status === 'active'
-								? 'bg-green-50 text-green-700'
-								: carer.status === 'pending'
-									? 'bg-amber-50 text-amber-700'
-									: carer.status === 'expired'
-										? 'bg-red-50 text-red-700'
-										: carer.status === 'on_leave'
-											? 'bg-blue-50 text-blue-700'
-											: carer.status === 'suspended'
-												? 'bg-red-50 text-red-700'
-												: carer.status === 'former'
-													? 'bg-slate-100 text-slate-700'
-													: 'bg-muted text-muted-foreground'
-						}`}>
-						{carer.status
-							.replace(/_/g, ' ')
-							.replace(/^\w/, (char: string) => char.toUpperCase())}
-					</span>
-					<CarerStatusActions carerId={carer.id} status={carer.status} />
-				</div>
 			</div>
 
-			<div className='space-y-6'>
-				<CarerProfileCard carer={carer} />
+			<div className='mx-auto max-w-7xl px-6 py-6 lg:px-8'>
+				<div className='space-y-6'>
+					<CarerProfileCard carer={carer} />
 
-				{/* Documents list */}
-				<div>
-					<Card>
-						<CardHeader>
-							<CardTitle className='text-base'>Documents</CardTitle>
-							<CardDescription>
+					{/* Documents */}
+					<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+						<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+							<h2 className='text-[14px] font-semibold text-ink'>Documents</h2>
+							<p className='mt-0.5 text-[12.5px] text-slate-500'>
 								Uploaded compliance documents for this carer
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
+							</p>
+						</div>
+						<div className='p-4'>
 							{currentDocuments.length > 0 ? (
-								<div className='space-y-3'>
+								<div className='space-y-2'>
 									{currentDocuments.map((doc) => (
 										<div
 											key={doc.id}
-											className='flex items-center justify-between p-4 rounded-xl bg-muted/50 border border-border'>
+											className='flex items-center justify-between rounded-xl border border-line bg-surface-muted/30 p-4'>
 											<div className='flex items-center gap-3'>
-												<div className='w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center'>
-													<FileText className='w-5 h-5 text-muted-foreground' />
+												<div className='flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-white'>
+													<FileText className='h-5 w-5 text-slate-400' />
 												</div>
 												<div>
-													<p className='font-medium text-sm'>
+													<p className='text-[13.5px] font-medium text-ink'>
 														{doc.document_types?.name}
 													</p>
-													<p className='text-xs text-muted-foreground'>
+													<p className='text-[12px] text-slate-500'>
 														{doc.file_name}
 													</p>
 												</div>
 											</div>
 											<div className='flex items-center gap-3'>
 												{doc.expiry_date && (
-													<span className='text-xs text-muted-foreground'>
+													<span className='text-[12px] text-slate-500'>
 														Expires{' '}
 														{new Date(doc.expiry_date).toLocaleDateString()}
 													</span>
 												)}
 												<span
-													className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-														doc.status === 'approved'
-															? 'bg-green-50 text-green-700'
-															: doc.status === 'pending'
-																? 'bg-amber-50 text-amber-700'
-																: doc.status === 'rejected'
-																	? 'bg-red-50 text-red-700'
-																	: 'bg-muted text-muted-foreground'
-													}`}>
+													className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${docStatusClass(doc.status)}`}>
 													{doc.status.charAt(0).toUpperCase() +
 														doc.status.slice(1)}
 												</span>
@@ -265,169 +246,213 @@ export default async function CarerPage({ params }: CarerPageProps) {
 									))}
 								</div>
 							) : (
-								<div className='text-center py-8'>
-									<FileText className='w-10 h-10 text-muted-foreground/50 mx-auto mb-3' />
-									<p className='text-sm text-muted-foreground'>
+								<div className='py-8 text-center'>
+									<div className='mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted'>
+										<FileText className='h-5 w-5 text-slate-400' />
+									</div>
+									<p className='text-[13px] text-slate-500'>
 										No documents uploaded yet
 									</p>
 								</div>
 							)}
-						</CardContent>
-					</Card>
+						</div>
+					</div>
+
+					{/* Document History */}
 					{historicalDocuments.length > 0 && (
-						<Card className='mt-6'>
-							<CardHeader>
-								<CardTitle className='text-base'>Document History</CardTitle>
-								<CardDescription>
+						<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+							<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+								<h2 className='text-[14px] font-semibold text-ink'>
+									Document History
+								</h2>
+								<p className='mt-0.5 text-[12.5px] text-slate-500'>
 									Superseded documents retained for audit history
-								</CardDescription>
-							</CardHeader>
-							<CardContent>
-								<div className='space-y-3'>
-									{historicalDocuments.map((doc) => (
-										<div
-											key={doc.id}
-											className='flex items-center justify-between p-4 rounded-xl bg-muted/30 border border-border'>
-											<div className='flex items-center gap-3'>
-												<div className='w-10 h-10 rounded-lg bg-background border border-border flex items-center justify-center'>
-													<FileText className='w-5 h-5 text-muted-foreground' />
-												</div>
-												<div>
-													<p className='font-medium text-sm'>
-														{doc.document_types?.name}
-													</p>
-													<p className='text-xs text-muted-foreground'>
-														{doc.file_name}
-													</p>
-												</div>
+								</p>
+							</div>
+							<div className='space-y-2 p-4'>
+								{historicalDocuments.map((doc) => (
+									<div
+										key={doc.id}
+										className='flex items-center justify-between rounded-xl border border-line bg-surface-muted/30 p-4'>
+										<div className='flex items-center gap-3'>
+											<div className='flex h-10 w-10 items-center justify-center rounded-lg border border-line bg-white'>
+												<FileText className='h-5 w-5 text-slate-400' />
 											</div>
-											<div className='flex items-center gap-3'>
-												<span className='text-xs px-2.5 py-1 rounded-full font-medium bg-muted text-muted-foreground'>
-													History
+											<div>
+												<p className='text-[13.5px] font-medium text-ink'>
+													{doc.document_types?.name}
+												</p>
+												<p className='text-[12px] text-slate-500'>
+													{doc.file_name}
+												</p>
+											</div>
+										</div>
+										<div className='flex items-center gap-3'>
+											<span className='inline-flex items-center rounded-full bg-surface-muted px-2.5 py-0.5 text-[11px] font-semibold text-slate-600'>
+												History
+											</span>
+											<Button variant='ghost' size='sm' asChild>
+												<a
+													href={`/api/documents/file?documentId=${encodeURIComponent(doc.id)}`}
+													target='_blank'
+													rel='noopener noreferrer'>
+													View
+												</a>
+											</Button>
+										</div>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+
+					{/* References */}
+					<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+						<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+							<h2 className='text-[14px] font-semibold text-ink'>References</h2>
+							<p className='mt-0.5 text-[12.5px] text-slate-500'>
+								Referee details, response status, and admin review decisions
+							</p>
+						</div>
+						<div className='p-4'>
+							{references && references.length > 0 ? (
+								<div className='space-y-2'>
+									{/* Header row */}
+									<div className='hidden grid-cols-[100px_1fr_120px_110px_100px_100px_1fr_80px] gap-3 px-3 lg:grid'>
+										{['Type', 'Referee', 'Relationship', 'Status', 'Requested', 'Responded', 'Request issue', ''].map(
+											(h) => (
+												<span key={h} className='text-[11px] font-semibold uppercase tracking-wide text-slate-400'>
+													{h}
 												</span>
-												<Button variant='ghost' size='sm' asChild>
-													<a
-														href={`/api/documents/file?documentId=${encodeURIComponent(doc.id)}`}
-														target='_blank'
-														rel='noopener noreferrer'>
-														View
-													</a>
-												</Button>
+											),
+										)}
+									</div>
+									{references.map((reference) => (
+										<div
+											key={reference.id}
+											className='rounded-xl border border-line bg-surface-muted/30 p-3'>
+											{/* Mobile layout */}
+											<div className='flex items-start justify-between gap-3 lg:hidden'>
+												<div>
+													<div className='flex items-center gap-2 mb-1'>
+														<span className='text-[11px] font-semibold uppercase text-slate-400'>
+															{reference.reference_type}
+														</span>
+														<span
+															className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${referenceStatusClass(reference.status)}`}>
+															{formatReferenceStatus(reference.status)}
+														</span>
+													</div>
+													<p className='text-[13.5px] font-medium text-ink'>
+														{reference.full_name}
+													</p>
+													{reference.organization && (
+														<p className='text-[12px] text-slate-500'>
+															{reference.organization}
+														</p>
+													)}
+													<p className='text-[12px] text-slate-500'>
+														{reference.email}
+													</p>
+													{reference.relationship && (
+														<p className='text-[12px] text-slate-500'>
+															{reference.relationship}
+														</p>
+													)}
+												</div>
+												<CarerReferenceActions
+													reference={reference as CarerReferenceForActions}
+												/>
+											</div>
+											{/* Desktop grid layout */}
+											<div className='hidden grid-cols-[100px_1fr_120px_110px_100px_100px_1fr_80px] gap-3 items-start lg:grid'>
+												<span className='text-[13px] capitalize text-ink'>
+													{reference.reference_type}
+												</span>
+												<div>
+													<p className='text-[13.5px] font-medium text-ink'>
+														{reference.full_name}
+													</p>
+													{reference.organization && (
+														<p className='text-[12px] text-slate-500'>
+															{reference.organization}
+														</p>
+													)}
+													<p className='text-[12px] text-slate-500'>
+														{reference.email}
+													</p>
+													{reference.phone && (
+														<p className='text-[12px] text-slate-500'>
+															{reference.phone}
+														</p>
+													)}
+												</div>
+												<span className='text-[13px] text-slate-600'>
+													{reference.relationship}
+												</span>
+												<span
+													className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${referenceStatusClass(reference.status)}`}>
+													{formatReferenceStatus(reference.status)}
+												</span>
+												<span className='text-[12.5px] text-slate-500'>
+													{formatDate(reference.request_sent_at)}
+												</span>
+												<span className='text-[12.5px] text-slate-500'>
+													{formatDate(reference.response_received_at)}
+												</span>
+												<span className='text-[12px] text-slate-500 whitespace-normal'>
+													{reference.request_error || '-'}
+												</span>
+												<div className='flex justify-end'>
+													<CarerReferenceActions
+														reference={reference as CarerReferenceForActions}
+													/>
+												</div>
 											</div>
 										</div>
 									))}
 								</div>
-							</CardContent>
-						</Card>
-					)}
-
-					<Card className='mt-6'>
-						<CardHeader>
-							<CardTitle className='text-base'>References</CardTitle>
-							<CardDescription>
-								Referee details, response status, and admin review decisions
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							{references && references.length > 0 ? (
-								<Table>
-									<TableHeader>
-										<TableRow>
-											<TableHead>Type</TableHead>
-											<TableHead>Referee</TableHead>
-											<TableHead>Relationship</TableHead>
-											<TableHead>Status</TableHead>
-											<TableHead>Requested</TableHead>
-											<TableHead>Responded</TableHead>
-											<TableHead>Request issue</TableHead>
-											<TableHead className='text-right'>Review</TableHead>
-										</TableRow>
-									</TableHeader>
-									<TableBody>
-										{references.map((reference) => (
-											<TableRow key={reference.id}>
-												<TableCell className='capitalize'>
-													{reference.reference_type}
-												</TableCell>
-												<TableCell>
-													<div className='space-y-1'>
-														<p className='font-medium'>{reference.full_name}</p>
-														{reference.organization && (
-															<p className='text-xs text-muted-foreground'>
-																{reference.organization}
-															</p>
-														)}
-														<p className='text-xs text-muted-foreground'>
-															{reference.email}
-														</p>
-														<p className='text-xs text-muted-foreground'>
-															{reference.phone}
-														</p>
-													</div>
-												</TableCell>
-												<TableCell>{reference.relationship}</TableCell>
-												<TableCell>
-													<Badge
-														variant='outline'
-														className={referenceStatusClass(reference.status)}>
-														{formatReferenceStatus(reference.status)}
-													</Badge>
-												</TableCell>
-												<TableCell>
-													{formatDate(reference.request_sent_at)}
-												</TableCell>
-												<TableCell>
-													{formatDate(reference.response_received_at)}
-												</TableCell>
-												<TableCell className='max-w-[220px] whitespace-normal text-muted-foreground'>
-													{reference.request_error || '-'}
-												</TableCell>
-												<TableCell className='text-right'>
-													<CarerReferenceActions
-														reference={reference as CarerReferenceForActions}
-													/>
-												</TableCell>
-											</TableRow>
-										))}
-									</TableBody>
-								</Table>
 							) : (
-								<div className='text-center py-8'>
-									<MessageSquareQuote className='w-10 h-10 text-muted-foreground/50 mx-auto mb-3' />
-									<p className='text-sm text-muted-foreground'>
+								<div className='py-8 text-center'>
+									<div className='mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-muted'>
+										<MessageSquareQuote className='h-5 w-5 text-slate-400' />
+									</div>
+									<p className='text-[13px] text-slate-500'>
 										No references submitted yet
 									</p>
 								</div>
 							)}
-						</CardContent>
-					</Card>
-				</div>
+						</div>
+					</div>
 
-				<div className='grid items-stretch gap-6 lg:grid-cols-2'>
-					<InviteLinkCard
-						inviteId={invitation?.id}
-						inviteToken={invitation?.token}
-						inviteExpiresAt={invitation?.expires_at}
-						inviteStatus={invitation?.status}
-						carerName={carer.full_name}
-						carerEmail={carer.email}
-						className='h-full'
-					/>
+					<div className='grid items-stretch gap-6 lg:grid-cols-2'>
+						<InviteLinkCard
+							inviteId={invitation?.id}
+							inviteToken={invitation?.token}
+							inviteExpiresAt={invitation?.expires_at}
+							inviteStatus={invitation?.status}
+							carerName={carer.full_name}
+							carerEmail={carer.email}
+							className='h-full'
+						/>
 
-					<Card className='h-full'>
-						<CardHeader>
-							<CardTitle className='text-base'>Upload Document</CardTitle>
-							<CardDescription>
-								Add a new compliance document for this carer
-							</CardDescription>
-						</CardHeader>
-						<CardContent>
-							<DocumentUploader
-								carerId={carer.id}
-								documentTypes={documentTypes || []}
-							/>
-						</CardContent>
-					</Card>
+						<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card h-full'>
+							<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+								<h2 className='text-[14px] font-semibold text-ink'>
+									Upload Document
+								</h2>
+								<p className='mt-0.5 text-[12.5px] text-slate-500'>
+									Add a new compliance document for this carer
+								</p>
+							</div>
+							<div className='p-5'>
+								<DocumentUploader
+									carerId={carer.id}
+									documentTypes={documentTypes || []}
+								/>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>
 		</div>

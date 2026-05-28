@@ -11,15 +11,7 @@ import {
 	AlertDialogTitle,
 	AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -348,193 +340,214 @@ export default function RolesSettingsPage() {
 	};
 
 	return (
-		<Card>
-			<CardHeader>
-				<CardTitle>Roles & Permissions</CardTitle>
-				<CardDescription>
-					Create organization roles here, then assign those roles from Team.
-					Protected system roles remain read-only.
-				</CardDescription>
-			</CardHeader>
-			<CardContent className='space-y-6'>
-				<form
-					onSubmit={handleCreateRole}
-					className='grid gap-3 rounded-md border p-4 md:grid-cols-[1fr_1.4fr_auto] md:items-end'>
-					<div className='space-y-2'>
-						<Label htmlFor='role-name'>Custom role</Label>
-						<Input
-							id='role-name'
-							value={customRoleName}
-							onChange={(event) => setCustomRoleName(event.target.value)}
-							placeholder='Compliance lead'
-						/>
-					</div>
-					<div className='space-y-2'>
-						<Label htmlFor='role-description'>Description</Label>
-						<Textarea
-							id='role-description'
-							value={customRoleDescription}
-							onChange={(event) => setCustomRoleDescription(event.target.value)}
-							placeholder='What this role is allowed to do'
-							className='min-h-10'
-						/>
-					</div>
-					<Button type='submit' disabled={isCreatingRole || !roleSetupReady}>
-						{isCreatingRole ? (
-							<Loader2 className='mr-2 h-4 w-4 animate-spin' />
-						) : (
-							<Plus className='mr-2 h-4 w-4' />
-						)}
-						Create role
-					</Button>
-				</form>
+		<div className='space-y-6'>
+			{/* Create role form */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+					<p className='text-[14px] font-semibold text-ink'>Roles &amp; Permissions</p>
+					<p className='mt-0.5 text-[12.5px] text-slate-500'>
+						Create organization roles here, then assign those roles from Team.
+						Protected system roles remain read-only.
+					</p>
+				</div>
+				<div className='p-5'>
+					<form
+						onSubmit={handleCreateRole}
+						className='grid gap-3 rounded-xl border border-line p-4 md:grid-cols-[1fr_1.4fr_auto] md:items-end'>
+						<div className='space-y-2'>
+							<Label htmlFor='role-name' className='text-[13px] font-medium text-ink'>
+								Custom role
+							</Label>
+							<Input
+								id='role-name'
+								value={customRoleName}
+								onChange={(event) => setCustomRoleName(event.target.value)}
+								placeholder='Compliance lead'
+								className='text-[13.5px]'
+							/>
+						</div>
+						<div className='space-y-2'>
+							<Label htmlFor='role-description' className='text-[13px] font-medium text-ink'>
+								Description
+							</Label>
+							<Textarea
+								id='role-description'
+								value={customRoleDescription}
+								onChange={(event) => setCustomRoleDescription(event.target.value)}
+								placeholder='What this role is allowed to do'
+								className='text-[13.5px]'
+							/>
+						</div>
+						<Button type='submit' disabled={isCreatingRole || !roleSetupReady}>
+							{isCreatingRole ? (
+								<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+							) : (
+								<Plus className='mr-2 h-4 w-4' />
+							)}
+							Create role
+						</Button>
+					</form>
 
-				{!roleSetupReady && (
-					<div className='rounded-md border border-dashed p-4 text-sm text-muted-foreground'>
-						Role and permission tables are not fully available yet.
-					</div>
-				)}
+					{!roleSetupReady && (
+						<div className='mt-4 rounded-xl border border-dashed border-line p-4 text-[13px] text-slate-500'>
+							Role and permission tables are not fully available yet.
+						</div>
+					)}
+				</div>
+			</div>
 
-				{isLoadingRoles ? (
-					<div className='flex justify-center py-8'>
-						<Loader2 className='h-6 w-6 animate-spin text-muted-foreground' />
-					</div>
-				) : (
-					<div className='space-y-4'>
-						{roles.map((role) => {
-							const isExpanded = Boolean(expandedRoleIds[role.id]);
+			{/* Roles list */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-2.5'>
+					<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+						Configured Roles
+					</span>
+				</div>
+				<div className='p-5'>
+					{isLoadingRoles ? (
+						<div className='flex justify-center py-8'>
+							<Loader2 className='h-6 w-6 animate-spin text-slate-400' />
+						</div>
+					) : (
+						<div className='space-y-3'>
+							{roles.map((role) => {
+								const isExpanded = Boolean(expandedRoleIds[role.id]);
 
-							return (
-								<div key={role.id} className='rounded-md border'>
-									<div className='flex items-center justify-between gap-4 p-4'>
-										<button
-											type='button'
-											className='flex min-w-0 flex-1 items-center justify-between gap-4 text-left'
-											onClick={() =>
-												setExpandedRoleIds((current) => ({
-													...current,
-													[role.id]: !current[role.id],
-												}))
-											}>
-											<div className='min-w-0'>
-												<div className='flex flex-wrap items-center gap-2'>
-													{isExpanded ? (
-														<ChevronDown className='h-4 w-4 text-muted-foreground' />
-													) : (
-														<ChevronRight className='h-4 w-4 text-muted-foreground' />
-													)}
-													<h3 className='font-medium'>{role.name}</h3>
-													{role.is_system_role && (
-														<Badge variant='secondary'>Protected</Badge>
-													)}
-												</div>
-												<p className='mt-1 line-clamp-1 text-sm text-muted-foreground'>
-													{role.description || 'No description yet.'}
-												</p>
-											</div>
-											<div className='flex shrink-0 items-center gap-2 text-xs text-muted-foreground'>
-												<span>{role.permissionIds.length} permissions</span>
-												<ShieldCheck className='h-5 w-5' />
-											</div>
-										</button>
-
-										{!role.is_system_role && (
-											<AlertDialog>
-												<AlertDialogTrigger asChild>
-													<Button
-														type='button'
-														variant='outline'
-														size='sm'
-														disabled={deletingRoleId === role.id}>
-														{deletingRoleId === role.id ? (
-															<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+								return (
+									<div key={role.id} className='rounded-xl border border-line'>
+										<div className='flex items-center justify-between gap-4 p-4'>
+											<button
+												type='button'
+												className='flex min-w-0 flex-1 items-center justify-between gap-4 text-left'
+												onClick={() =>
+													setExpandedRoleIds((current) => ({
+														...current,
+														[role.id]: !current[role.id],
+													}))
+												}>
+												<div className='min-w-0'>
+													<div className='flex flex-wrap items-center gap-2'>
+														{isExpanded ? (
+															<ChevronDown className='h-4 w-4 text-slate-400' />
 														) : (
-															<Trash2 className='mr-2 h-4 w-4' />
+															<ChevronRight className='h-4 w-4 text-slate-400' />
 														)}
-														Delete
-													</Button>
-												</AlertDialogTrigger>
-												<AlertDialogContent>
-													<AlertDialogHeader>
-														<AlertDialogTitle>Delete this role?</AlertDialogTitle>
-														<AlertDialogDescription>
-															This removes the custom role and its permissions. If any team
-															members still use this role, reassign them before deleting it.
-														</AlertDialogDescription>
-													</AlertDialogHeader>
-													<AlertDialogFooter>
-														<AlertDialogCancel>Cancel</AlertDialogCancel>
-														<AlertDialogAction
-															variant='destructive'
-															onClick={() => deleteRole(role)}>
-															Delete role
-														</AlertDialogAction>
-													</AlertDialogFooter>
-												</AlertDialogContent>
-											</AlertDialog>
-										)}
-									</div>
-
-									{isExpanded && (
-										<div className='grid gap-4 border-t p-4 md:grid-cols-2'>
-											{Object.entries(permissionsByCategory).map(
-												([category, categoryPermissions]) => (
-													<div key={category} className='space-y-3'>
-														<p className='text-xs font-semibold uppercase text-muted-foreground'>
-															{category}
-														</p>
-														{categoryPermissions.map((permission) => {
-															const updateKey = `${role.id}:${permission.id}`;
-															const checked = role.permissionIds.includes(
-																permission.id,
-															);
-
-															return (
-																<label
-																	key={permission.id}
-																	className='flex items-start gap-3 rounded-md border p-3 text-sm'>
-																	<Checkbox
-																		checked={checked}
-																		disabled={
-																			Boolean(role.is_system_role) ||
-																			updatingPermission === updateKey
-																		}
-																		onCheckedChange={(value) =>
-																			toggleRolePermission(
-																				role,
-																				permission,
-																				value === true,
-																			)
-																		}
-																	/>
-																	<span>
-																		<span className='block font-medium'>
-																			{permission.name}
-																		</span>
-																		<span className='block text-xs text-muted-foreground'>
-																			{permission.code}
-																		</span>
-																	</span>
-																</label>
-															);
-														})}
+														<p className='text-[13.5px] font-medium text-ink'>{role.name}</p>
+														{role.is_system_role && (
+															<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-surface-muted text-slate-600'>
+																Protected
+															</span>
+														)}
 													</div>
-												),
+													<p className='mt-1 line-clamp-1 text-[12.5px] text-slate-400'>
+														{role.description || 'No description yet.'}
+													</p>
+												</div>
+												<div className='flex shrink-0 items-center gap-2 text-[12px] text-slate-400'>
+													<span>{role.permissionIds.length} permissions</span>
+													<ShieldCheck className='h-4 w-4' />
+												</div>
+											</button>
+
+											{!role.is_system_role && (
+												<AlertDialog>
+													<AlertDialogTrigger asChild>
+														<Button
+															type='button'
+															variant='outline'
+															size='sm'
+															className='h-7 text-[12.5px]'
+															disabled={deletingRoleId === role.id}>
+															{deletingRoleId === role.id ? (
+																<Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+															) : (
+																<Trash2 className='mr-1.5 h-3.5 w-3.5' />
+															)}
+															Delete
+														</Button>
+													</AlertDialogTrigger>
+													<AlertDialogContent>
+														<AlertDialogHeader>
+															<AlertDialogTitle>Delete this role?</AlertDialogTitle>
+															<AlertDialogDescription>
+																This removes the custom role and its permissions. If any team
+																members still use this role, reassign them before deleting it.
+															</AlertDialogDescription>
+														</AlertDialogHeader>
+														<AlertDialogFooter>
+															<AlertDialogCancel>Cancel</AlertDialogCancel>
+															<AlertDialogAction
+																variant='destructive'
+																onClick={() => deleteRole(role)}>
+																Delete role
+															</AlertDialogAction>
+														</AlertDialogFooter>
+													</AlertDialogContent>
+												</AlertDialog>
 											)}
 										</div>
-									)}
-								</div>
-							);
-						})}
 
-						{roles.length === 0 && (
-							<div className='rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground'>
-								No organization roles found yet.
-							</div>
-						)}
-					</div>
-				)}
-			</CardContent>
-		</Card>
+										{isExpanded && (
+											<div className='grid gap-4 border-t border-line p-4 md:grid-cols-2'>
+												{Object.entries(permissionsByCategory).map(
+													([category, categoryPermissions]) => (
+														<div key={category} className='space-y-2'>
+															<p className='text-[11px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+																{category}
+															</p>
+															{categoryPermissions.map((permission) => {
+																const updateKey = `${role.id}:${permission.id}`;
+																const checked = role.permissionIds.includes(
+																	permission.id,
+																);
+
+																return (
+																	<label
+																		key={permission.id}
+																		className='flex items-start gap-3 rounded-xl border border-line p-3 text-[13px] cursor-pointer hover:bg-surface-page transition-colors'>
+																		<Checkbox
+																			checked={checked}
+																			disabled={
+																				Boolean(role.is_system_role) ||
+																				updatingPermission === updateKey
+																			}
+																			onCheckedChange={(value) =>
+																				toggleRolePermission(
+																					role,
+																					permission,
+																					value === true,
+																				)
+																			}
+																		/>
+																		<span>
+																			<span className='block text-[13px] font-medium text-ink'>
+																				{permission.name}
+																			</span>
+																			<span className='block text-[11.5px] text-slate-400'>
+																				{permission.code}
+																			</span>
+																		</span>
+																	</label>
+																);
+															})}
+														</div>
+													),
+												)}
+											</div>
+										)}
+									</div>
+								);
+							})}
+
+							{roles.length === 0 && (
+								<div className='rounded-xl border border-dashed border-line p-8 text-center'>
+									<p className='text-[13px] text-slate-400'>No organization roles found yet.</p>
+								</div>
+							)}
+						</div>
+					)}
+				</div>
+			</div>
+		</div>
 	);
 }

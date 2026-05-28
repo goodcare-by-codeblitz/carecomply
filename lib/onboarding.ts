@@ -58,14 +58,10 @@ type InvitationRow = {
 		| {
 				name: string;
 				slug: string;
-				required_work_references_count: number | null;
-				required_character_references_count: number | null;
 		  }
 		| {
 				name: string;
 				slug: string;
-				required_work_references_count: number | null;
-				required_character_references_count: number | null;
 		  }[]
 		| null;
 };
@@ -99,8 +95,6 @@ export type CarerOnboardingContext = {
 	organization: {
 		name: string;
 		slug: string;
-		required_work_references_count: number | null;
-		required_character_references_count: number | null;
 	} | null;
 };
 
@@ -132,7 +126,7 @@ export async function getCarerOnboardingContext(
 	const { data, error } = await admin
 		.from('organization_invitations')
 		.select(
-			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email, status, onboarding_progress), organizations(name, slug, required_work_references_count, required_character_references_count)',
+			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email, status, onboarding_progress), organizations(name, slug)',
 		)
 		.eq('token', token)
 		.maybeSingle();
@@ -202,7 +196,7 @@ export async function updateCarerOnboardingProgress(
 	organizationId: string,
 	options: { preserveEmploymentStatus?: boolean; statusOverride?: string } = {},
 ) {
-	const [{ data: carer }, { data: requiredTypes }, { data: documents }, { data: orgData }, { data: refRows }] =
+	const [{ data: carer }, { data: requiredTypes }, { data: documents }, { data: refRows }] =
 		await Promise.all([
 			admin.from('carers').select('status').eq('id', carerId).maybeSingle(),
 			admin
@@ -214,11 +208,6 @@ export async function updateCarerOnboardingProgress(
 				.from('documents')
 				.select('document_type_id, status, expiry_date')
 				.eq('carer_id', carerId),
-			admin
-				.from('organizations')
-				.select('required_work_references_count, required_character_references_count')
-				.eq('id', organizationId)
-				.maybeSingle(),
 			admin
 				.from('carer_references')
 				.select('reference_type, status')
@@ -250,8 +239,8 @@ export async function updateCarerOnboardingProgress(
 		}
 	});
 
-	const reqWork = orgData?.required_work_references_count ?? 0;
-	const reqChar = orgData?.required_character_references_count ?? 0;
+	const reqWork = 0;
+	const reqChar = 0;
 	const approvedReferences = (refRows ?? []).filter((r) => r.status === 'approved');
 	const workCount = approvedReferences.filter((r) => r.reference_type === 'work').length;
 	const charCount = approvedReferences.filter((r) => r.reference_type === 'character').length;

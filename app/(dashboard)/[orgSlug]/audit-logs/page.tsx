@@ -1,12 +1,5 @@
 'use client';
 
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-	CardDescription,
-} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -30,6 +23,7 @@ import {
 	Download,
 	ShieldCheck,
 	RefreshCcw,
+	AlertCircle,
 } from 'lucide-react';
 import { useRef, useState, useEffect } from 'react';
 import {
@@ -39,14 +33,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import {
-	Table,
-	TableBody,
-	TableCell,
-	TableHead,
-	TableHeader,
-	TableRow,
-} from '@/components/ui/table';
 import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 
@@ -370,14 +356,20 @@ export default function AuditLogsPage() {
 	};
 
 	const getActionColor = (action: string) => {
-		if (action.includes('approved') || action.includes('completed')) return 'text-green-600 bg-green-50';
-		if (action.includes('rejected') || action.includes('deleted') || action.includes('failed') || action.includes('removed'))
-			return 'text-red-600 bg-red-50';
+		if (action.includes('approved') || action.includes('completed'))
+			return 'text-ok bg-ok-50';
+		if (
+			action.includes('rejected') ||
+			action.includes('deleted') ||
+			action.includes('failed') ||
+			action.includes('removed')
+		)
+			return 'text-danger bg-danger-50';
 		if (action.includes('created') || action.includes('uploaded'))
-			return 'text-blue-600 bg-blue-50';
+			return 'text-brand-700 bg-brand-50';
 		if (action.includes('updated') || action.includes('toggled'))
-			return 'text-amber-600 bg-amber-50';
-		return 'text-muted-foreground bg-muted';
+			return 'text-warn bg-warn-50';
+		return 'text-slate-500 bg-surface-muted';
 	};
 
 	const label = (value: string | null) =>
@@ -391,335 +383,355 @@ export default function AuditLogsPage() {
 	);
 
 	return (
-		<div className='p-8 max-w-7xl mx-auto'>
+		<div className='min-h-full'>
 			{/* Page header */}
-			<div className='mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
-				<div>
-					<h1 className='text-2xl font-semibold tracking-tight'>Audit Logs</h1>
-					<p className='text-muted-foreground mt-1'>
-						Track governance, staffing, billing, and compliance evidence for
-						CQC inspection.
-					</p>
-				</div>
-				<div className='flex flex-wrap gap-2'>
-					<input
-						ref={verifyInputRef}
-						type='file'
-						accept='.csv,.xlsx'
-						className='hidden'
-						onChange={(event) =>
-							verifyAuditExport(event.currentTarget.files?.[0] ?? null)
-						}
-					/>
-					<Button
-						type='button'
-						variant='outline'
-						onClick={() => exportAuditLogs('csv')}
-						disabled={exporting}>
-						<Download className='mr-2 h-4 w-4' />
-						{exporting ? 'Exporting...' : 'Export CSV'}
-					</Button>
-					{capabilities.excelExport && (
+			<div className='border-b border-line bg-white px-6 py-5 lg:px-8'>
+				<div className='mx-auto flex max-w-7xl flex-col gap-4 sm:flex-row sm:items-start sm:justify-between'>
+					<div>
+						<h1 className='text-[22px] font-semibold tracking-tight text-ink'>Audit Logs</h1>
+						<p className='mt-0.5 text-[13px] text-slate-500'>
+							Track governance, staffing, billing, and compliance evidence for CQC inspection.
+						</p>
+					</div>
+					<div className='flex flex-wrap gap-2'>
+						<input
+							ref={verifyInputRef}
+							type='file'
+							accept='.csv,.xlsx'
+							className='hidden'
+							onChange={(event) =>
+								verifyAuditExport(event.currentTarget.files?.[0] ?? null)
+							}
+						/>
 						<Button
 							type='button'
 							variant='outline'
-							onClick={() => exportAuditLogs('xlsx')}
+							size='sm'
+							className='h-9 text-[13.5px]'
+							onClick={() => exportAuditLogs('csv')}
 							disabled={exporting}>
-							<Download className='mr-2 h-4 w-4' />
-							Export Excel
+							<Download className='mr-2 h-3.5 w-3.5' />
+							{exporting ? 'Exporting...' : 'Export CSV'}
 						</Button>
-					)}
-					<Button
-						type='button'
-						variant='outline'
-						onClick={() => verifyInputRef.current?.click()}
-						disabled={verifying}>
-						<ShieldCheck className='mr-2 h-4 w-4' />
-						{verifying ? 'Verifying...' : 'Verify export'}
-					</Button>
+						{capabilities.excelExport && (
+							<Button
+								type='button'
+								variant='outline'
+								size='sm'
+								className='h-9 text-[13.5px]'
+								onClick={() => exportAuditLogs('xlsx')}
+								disabled={exporting}>
+								<Download className='mr-2 h-3.5 w-3.5' />
+								Export Excel
+							</Button>
+						)}
+						<Button
+							type='button'
+							variant='outline'
+							size='sm'
+							className='h-9 text-[13.5px]'
+							onClick={() => verifyInputRef.current?.click()}
+							disabled={verifying}>
+							<ShieldCheck className='mr-2 h-3.5 w-3.5' />
+							{verifying ? 'Verifying...' : 'Verify export'}
+						</Button>
+					</div>
 				</div>
 			</div>
 
-			<p className='mb-6 text-sm text-muted-foreground'>
-				Tamper-evident exports include a CareComply signature. Use Verify
-				export to confirm a downloaded file has not changed.
-			</p>
+			<div className='mx-auto max-w-7xl space-y-6 px-6 py-6 lg:px-8'>
+				<p className='text-[13px] text-slate-500'>
+					Tamper-evident exports include a CareComply signature. Use Verify
+					export to confirm a downloaded file has not changed.
+				</p>
 
-			{!capabilities.advancedAudit && (
-				<Card className='mb-6 border-amber-200 bg-amber-50/50'>
-					<CardContent className='py-4 text-sm text-amber-900'>
-						Starter includes 90-day basic audit logs with CSV export. Upgrade
-						to Pro for full CQC filters, evidence summaries, and Excel export.
-					</CardContent>
-				</Card>
-			)}
+				{!capabilities.advancedAudit && (
+					<div className='flex items-start gap-3 rounded-xl border border-warn/30 bg-warn-50 px-4 py-3.5'>
+						<AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-warn' />
+						<p className='text-[13px] text-slate-700'>
+							Starter includes 90-day basic audit logs with CSV export. Upgrade
+							to Pro for full CQC filters, evidence summaries, and Excel export.
+						</p>
+					</div>
+				)}
 
-			{capabilities.advancedAudit && (
-				<div className='mb-6 grid gap-3 md:grid-cols-5'>
-					{cqcCoverage.map((item) => (
-						<Card key={item.key}>
-							<CardContent className='flex items-center gap-3 p-4'>
-								<ShieldCheck className='h-5 w-5 text-muted-foreground' />
-								<div>
-									<p className='text-xs text-muted-foreground'>{label(item.key)}</p>
-									<p className='text-lg font-semibold'>{item.count}</p>
+				{capabilities.advancedAudit && (
+					<div className='grid gap-4 sm:grid-cols-3 md:grid-cols-5'>
+						{cqcCoverage.map((item) => (
+							<div
+								key={item.key}
+								className='rounded-xl border border-line bg-white p-4 shadow-card'>
+								<div className='flex items-center gap-3'>
+									<ShieldCheck className='h-5 w-5 text-brand-700' />
+									<div>
+										<p className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+											{label(item.key)}
+										</p>
+										<p className='text-[22px] font-semibold leading-none tracking-tight text-ink'>
+											{item.count}
+										</p>
+									</div>
 								</div>
-							</CardContent>
-						</Card>
-					))}
-				</div>
-			)}
+							</div>
+						))}
+					</div>
+				)}
 
-			{/* Filters */}
-			<div className='grid gap-4 mb-6 lg:grid-cols-[minmax(0,1fr)_repeat(5,160px)]'>
-				<div className='relative flex-1 max-w-md'>
-					<Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground' />
-					<Input
-						placeholder='Search by user, action, or entity...'
-						className='pl-10 h-11'
-						value={search}
-						onChange={(e) => setSearch(e.target.value)}
-					/>
+				{/* Filters */}
+				<div className='flex flex-wrap items-center gap-3'>
+					<div className='relative min-w-[200px] flex-1 max-w-sm'>
+						<Search className='absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400' />
+						<Input
+							placeholder='Search by user, action, or entity...'
+							className='h-9 pl-9 text-[13.5px]'
+							value={search}
+							onChange={(e) => setSearch(e.target.value)}
+						/>
+					</div>
+					<Select
+						value={entityFilter}
+						onValueChange={(v) => {
+							setEntityFilter(v);
+							setPage(1);
+						}}>
+						<SelectTrigger className='h-9 w-[160px] text-[13.5px]'>
+							<History className='mr-1.5 h-3.5 w-3.5 text-slate-400' />
+							<SelectValue placeholder='Filter by type' />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value='all'>All Activities</SelectItem>
+							<SelectItem value='carer'>Carers</SelectItem>
+							<SelectItem value='document'>Documents</SelectItem>
+							<SelectItem value='reminder'>Reminders</SelectItem>
+							<SelectItem value='email'>Emails</SelectItem>
+							<SelectItem value='user'>Users</SelectItem>
+							<SelectItem value='billing'>Billing</SelectItem>
+							<SelectItem value='document_type'>Requirements</SelectItem>
+							<SelectItem value='team_member'>Team Members</SelectItem>
+						</SelectContent>
+					</Select>
+					{capabilities.advancedAudit && (
+						<Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
+							<SelectTrigger className='h-9 w-[140px] text-[13.5px]'>
+								<SelectValue placeholder='Category' />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='all'>All Categories</SelectItem>
+								<SelectItem value='billing'>Billing</SelectItem>
+								<SelectItem value='documents'>Documents</SelectItem>
+								<SelectItem value='governance'>Governance</SelectItem>
+								<SelectItem value='onboarding'>Onboarding</SelectItem>
+								<SelectItem value='staffing'>Staffing</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
+					{capabilities.advancedAudit && (
+						<Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
+							<SelectTrigger className='h-9 w-[130px] text-[13.5px]'>
+								<SelectValue placeholder='Severity' />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='all'>All Severity</SelectItem>
+								<SelectItem value='info'>Info</SelectItem>
+								<SelectItem value='warning'>Warning</SelectItem>
+								<SelectItem value='critical'>Critical</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
+					{capabilities.advancedAudit && (
+						<Select value={cqcFilter} onValueChange={(v) => { setCqcFilter(v); setPage(1); }}>
+							<SelectTrigger className='h-9 w-[120px] text-[13.5px]'>
+								<SelectValue placeholder='CQC' />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='all'>All CQC</SelectItem>
+								<SelectItem value='safe'>Safe</SelectItem>
+								<SelectItem value='effective'>Effective</SelectItem>
+								<SelectItem value='caring'>Caring</SelectItem>
+								<SelectItem value='responsive'>Responsive</SelectItem>
+								<SelectItem value='well_led'>Well-led</SelectItem>
+							</SelectContent>
+						</Select>
+					)}
+					{capabilities.advancedAudit && (
+						<>
+							<Input
+								type='date'
+								value={dateFrom}
+								onChange={(event) => { setDateFrom(event.target.value); setPage(1); }}
+								className='h-9 w-[140px] text-[13.5px]'
+							/>
+							<Input
+								type='date'
+								value={dateTo}
+								onChange={(event) => { setDateTo(event.target.value); setPage(1); }}
+								className='h-9 w-[140px] text-[13.5px]'
+							/>
+						</>
+					)}
 				</div>
-				<Select
-					value={entityFilter}
-					onValueChange={(v) => {
-						setEntityFilter(v);
-						setPage(1);
-					}}>
-					<SelectTrigger className='w-40 h-11'>
-						<History className='w-4 h-4 mr-2' />
-						<SelectValue placeholder='Filter by type' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All Activities</SelectItem>
-						<SelectItem value='carer'>Carers</SelectItem>
-						<SelectItem value='document'>Documents</SelectItem>
-						<SelectItem value='reminder'>Reminders</SelectItem>
-						<SelectItem value='email'>Emails</SelectItem>
-						<SelectItem value='user'>Users</SelectItem>
-						<SelectItem value='billing'>Billing</SelectItem>
-						<SelectItem value='document_type'>Requirements</SelectItem>
-						<SelectItem value='team_member'>Team Members</SelectItem>
-					</SelectContent>
-				</Select>
-				{capabilities.advancedAudit && (
-				<Select value={categoryFilter} onValueChange={(v) => { setCategoryFilter(v); setPage(1); }}>
-					<SelectTrigger className='h-11'>
-						<SelectValue placeholder='Category' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All Categories</SelectItem>
-						<SelectItem value='billing'>Billing</SelectItem>
-						<SelectItem value='documents'>Documents</SelectItem>
-						<SelectItem value='governance'>Governance</SelectItem>
-						<SelectItem value='onboarding'>Onboarding</SelectItem>
-						<SelectItem value='staffing'>Staffing</SelectItem>
-					</SelectContent>
-				</Select>
-				)}
-				{capabilities.advancedAudit && (
-				<Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
-					<SelectTrigger className='h-11'>
-						<SelectValue placeholder='Severity' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All Severity</SelectItem>
-						<SelectItem value='info'>Info</SelectItem>
-						<SelectItem value='warning'>Warning</SelectItem>
-						<SelectItem value='critical'>Critical</SelectItem>
-					</SelectContent>
-				</Select>
-				)}
-				{capabilities.advancedAudit && (
-				<Select value={cqcFilter} onValueChange={(v) => { setCqcFilter(v); setPage(1); }}>
-					<SelectTrigger className='h-11'>
-						<SelectValue placeholder='CQC' />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectItem value='all'>All CQC</SelectItem>
-						<SelectItem value='safe'>Safe</SelectItem>
-						<SelectItem value='effective'>Effective</SelectItem>
-						<SelectItem value='caring'>Caring</SelectItem>
-						<SelectItem value='responsive'>Responsive</SelectItem>
-						<SelectItem value='well_led'>Well-led</SelectItem>
-					</SelectContent>
-				</Select>
-				)}
-				{capabilities.advancedAudit && (
-					<>
-						<Input type='date' value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }} className='h-11' />
-						<Input type='date' value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }} className='h-11' />
-					</>
-				)}
-			</div>
 
-			{/* Logs table */}
-			<Card>
-				<CardHeader>
-					<CardTitle className='text-base'>Activity History</CardTitle>
-					<CardDescription>
-						{totalPages > 0 && `Page ${page} of ${totalPages}`}
-					</CardDescription>
-				</CardHeader>
-				<CardContent>
+				{/* Logs table */}
+				<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+					{/* Table header */}
+					<div className='border-b border-line bg-surface-page px-5 py-2.5'>
+						<div className='grid grid-cols-[140px_1fr_1fr_1fr] gap-4'>
+							<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+								Time
+							</span>
+							<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+								User
+							</span>
+							<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+								Action
+							</span>
+							<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+								Entity
+							</span>
+						</div>
+					</div>
+
 					{loading ? (
-						<div className='flex items-center justify-center py-12'>
-							<div className='w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin' />
+						<div className='divide-y divide-line'>
+							{[1, 2, 3, 4, 5].map((i) => (
+								<div key={i} className='grid grid-cols-[140px_1fr_1fr_1fr] gap-4 px-5 py-4 animate-pulse'>
+									<div className='h-3.5 w-16 rounded bg-surface-muted' />
+									<div className='flex items-center gap-2'>
+										<div className='h-7 w-7 rounded-full bg-surface-muted' />
+										<div className='h-3.5 w-28 rounded bg-surface-muted' />
+									</div>
+									<div className='flex items-center gap-2'>
+										<div className='h-7 w-7 rounded-lg bg-surface-muted' />
+										<div className='h-3.5 w-24 rounded bg-surface-muted' />
+									</div>
+									<div className='h-3.5 w-20 rounded bg-surface-muted' />
+								</div>
+							))}
 						</div>
 					) : filteredLogs.length > 0 ? (
 						<>
-							<Table>
-								<TableHeader>
-									<TableRow>
-										<TableHead className='w-40'>Time</TableHead>
-										<TableHead>User</TableHead>
-										<TableHead>Action</TableHead>
-										{capabilities.advancedAudit && <TableHead>CQC</TableHead>}
-										<TableHead>Entity</TableHead>
-										{capabilities.fullDetails && (
-											<TableHead className='hidden md:table-cell'>
-												Details
-											</TableHead>
-										)}
-									</TableRow>
-								</TableHeader>
-								<TableBody>
-									{filteredLogs.map((log) => {
-										const ActionIcon = ACTION_ICONS[log.action] || History;
-										const EntityIcon =
-											ENTITY_ICONS[log.entity_type] || FileText;
-										const actionColor = getActionColor(log.action);
+							<div className='divide-y divide-line'>
+								{filteredLogs.map((log) => {
+									const ActionIcon = ACTION_ICONS[log.action] || History;
+									const EntityIcon = ENTITY_ICONS[log.entity_type] || FileText;
+									const actionColor = getActionColor(log.action);
 
-										return (
-											<TableRow key={log.id}>
-												<TableCell className='font-mono text-xs text-muted-foreground'>
-													<div>
-														<span className='font-medium text-foreground'>
-															{formatDate(log.created_at)}
-														</span>
-														<br />
-														<span className='text-[10px]'>
-															{new Date(log.created_at).toLocaleTimeString(
-																'en-GB',
-																{
-																	hour: '2-digit',
-																	minute: '2-digit',
-																},
-															)}
-														</span>
-													</div>
-												</TableCell>
-												<TableCell>
+									return (
+										<div
+											key={log.id}
+											className='grid grid-cols-[140px_1fr_1fr_1fr] items-center gap-4 px-5 py-3.5 transition-colors hover:bg-surface-page'>
+											{/* Time */}
+											<div>
+												<p className='text-[13px] font-medium text-ink'>
+													{formatDate(log.created_at)}
+												</p>
+												<p className='font-mono text-[10.5px] text-slate-400'>
+													{new Date(log.created_at).toLocaleTimeString('en-GB', {
+														hour: '2-digit',
+														minute: '2-digit',
+													})}
+												</p>
+											</div>
+											{/* User */}
+											<div className='flex items-center gap-2 min-w-0'>
+												<div className='flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-muted'>
+													<User className='h-3.5 w-3.5 text-slate-400' />
+												</div>
+												<span className='truncate text-[13px] text-ink'>
+													{log.user_email || 'System'}
+												</span>
+											</div>
+											{/* Action */}
+											<div className='flex items-center gap-2 min-w-0'>
+												<div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${actionColor}`}>
+													<ActionIcon className='h-3.5 w-3.5' />
+												</div>
+												<div className='min-w-0'>
+													<span className='truncate text-[13px] text-ink'>
+														{ACTION_LABELS[log.action] || log.action}
+													</span>
+													{capabilities.advancedAudit && log.cqc_key_question && (
+														<p className='text-[11px] text-slate-400'>
+															{label(log.cqc_key_question)} &middot; {label(log.category)}
+														</p>
+													)}
+												</div>
+											</div>
+											{/* Entity */}
+											<div className='min-w-0'>
+												{log.entity_name && (
 													<div className='flex items-center gap-2'>
-														<div className='w-7 h-7 rounded-full bg-muted flex items-center justify-center'>
-															<User className='w-3.5 h-3.5 text-muted-foreground' />
-														</div>
-														<span className='text-sm truncate max-w-[150px]'>
-															{log.user_email || 'System'}
+														<EntityIcon className='h-3.5 w-3.5 shrink-0 text-slate-400' />
+														<span className='truncate text-[13px] text-ink'>
+															{log.entity_name}
 														</span>
 													</div>
-												</TableCell>
-												<TableCell>
-													<div className='flex items-center gap-2'>
-														<div
-															className={`w-7 h-7 rounded-lg flex items-center justify-center ${actionColor}`}>
-															<ActionIcon className='w-3.5 h-3.5' />
-														</div>
-														<span className='text-sm'>
-															{ACTION_LABELS[log.action] || log.action}
-														</span>
-													</div>
-												</TableCell>
-												{capabilities.advancedAudit && (
-													<TableCell>
-														<div className='space-y-1 text-xs'>
-															<div className='font-medium'>{label(log.cqc_key_question)}</div>
-															<div className='text-muted-foreground'>
-																{label(log.category)} &middot; {label(log.severity)}
-															</div>
-														</div>
-													</TableCell>
 												)}
-												<TableCell>
-													{log.entity_name && (
-														<div className='flex items-center gap-2'>
-															<EntityIcon className='w-4 h-4 text-muted-foreground' />
-															<span className='text-sm truncate max-w-[200px]'>
-																{log.entity_name}
-															</span>
+												{capabilities.fullDetails &&
+													log.details &&
+													Object.keys(log.details).length > 0 && (
+														<div className='mt-1 space-y-0.5'>
+															{Object.entries(log.details)
+																.filter(([key]) => !['user_agent'].includes(key))
+																.slice(0, 2)
+																.map(([key, value]) => (
+																	<p key={key} className='truncate text-[11px] text-slate-400'>
+																		<span className='font-medium'>{label(key)}:</span>{' '}
+																		{typeof value === 'object'
+																			? JSON.stringify(value)
+																			: String(value)}
+																	</p>
+																))}
 														</div>
 													)}
-												</TableCell>
-												{capabilities.fullDetails && (
-													<TableCell className='hidden md:table-cell'>
-														{log.details &&
-															Object.keys(log.details).length > 0 && (
-																<div className='max-w-md space-y-1 text-xs'>
-																	{Object.entries(log.details)
-																		.filter(([key]) => !['user_agent'].includes(key))
-																		.slice(0, 4)
-																		.map(([key, value]) => (
-																			<div key={key} className='truncate'>
-																				<span className='font-medium'>
-																					{label(key)}:
-																				</span>{' '}
-																				{typeof value === 'object'
-																					? JSON.stringify(value)
-																					: String(value)}
-																			</div>
-																		))}
-																</div>
-															)}
-													</TableCell>
-												)}
-											</TableRow>
-										);
-									})}
-								</TableBody>
-							</Table>
+											</div>
+										</div>
+									);
+								})}
+							</div>
 
 							{/* Pagination */}
-							<div className='flex items-center justify-between mt-6 pt-4 border-t'>
-								<p className='text-sm text-muted-foreground'>
-									Showing {(page - 1) * pageSize + 1} to{' '}
-									{Math.min(
-										page * pageSize,
-										(page - 1) * pageSize + filteredLogs.length,
-									)}{' '}
+							<div className='flex items-center justify-between border-t border-line px-5 py-3'>
+								<p className='text-[12.5px] text-slate-500'>
+									Showing {(page - 1) * pageSize + 1}–
+									{Math.min(page * pageSize, (page - 1) * pageSize + filteredLogs.length)}{' '}
 									results
 								</p>
 								<div className='flex items-center gap-2'>
 									<Button
 										variant='outline'
 										size='sm'
+										className='h-8 text-[12.5px]'
 										onClick={() => setPage((p) => Math.max(1, p - 1))}
 										disabled={page <= 1}>
-										<ChevronLeft className='w-4 h-4' />
+										<ChevronLeft className='h-3.5 w-3.5' />
 										Previous
 									</Button>
 									<Button
 										variant='outline'
 										size='sm'
+										className='h-8 text-[12.5px]'
 										onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
 										disabled={page >= totalPages}>
 										Next
-										<ChevronRight className='w-4 h-4' />
+										<ChevronRight className='h-3.5 w-3.5' />
 									</Button>
 								</div>
 							</div>
 						</>
 					) : (
-						<div className='text-center py-12'>
-							<History className='w-12 h-12 text-muted-foreground/50 mx-auto mb-4' />
-							<h3 className='text-lg font-medium mb-2'>No activity yet</h3>
-							<p className='text-sm text-muted-foreground max-w-sm mx-auto'>
+						<div className='flex flex-col items-center justify-center py-20 text-center'>
+							<div className='flex h-14 w-14 items-center justify-center rounded-full bg-surface-muted'>
+								<History className='h-6 w-6 text-slate-400' />
+							</div>
+							<p className='mt-4 text-[15px] font-semibold text-ink'>No activity yet</p>
+							<p className='mt-2 max-w-sm text-[13.5px] leading-snug text-slate-500'>
 								Actions performed in your organization will appear here.
 							</p>
 						</div>
 					)}
-				</CardContent>
-			</Card>
+				</div>
+			</div>
 		</div>
 	);
 }
