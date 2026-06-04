@@ -61,6 +61,11 @@ type AuditCapabilities = {
 	maxRetentionDays: number | null;
 };
 
+type CqcCoverage = Record<
+	'safe' | 'effective' | 'caring' | 'responsive' | 'well_led',
+	number
+>;
+
 const DEFAULT_AUDIT_CAPABILITIES: AuditCapabilities = {
 	advancedAudit: false,
 	csvExport: true,
@@ -69,6 +74,22 @@ const DEFAULT_AUDIT_CAPABILITIES: AuditCapabilities = {
 	fullDetails: false,
 	maxRetentionDays: 90,
 };
+
+const DEFAULT_CQC_COVERAGE: CqcCoverage = {
+	safe: 0,
+	effective: 0,
+	caring: 0,
+	responsive: 0,
+	well_led: 0,
+};
+
+const CQC_KEY_QUESTIONS = [
+	'safe',
+	'effective',
+	'caring',
+	'responsive',
+	'well_led',
+] as const;
 
 const ACTION_ICONS: Record<string, typeof FileText> = {
 	'carer.created': Plus,
@@ -123,6 +144,12 @@ const ACTION_ICONS: Record<string, typeof FileText> = {
 	'team.member_returned': CheckCircle,
 	'team.member_suspended': XCircle,
 	'team.role_changed': Edit,
+	'training.completed': CheckCircle,
+	'training.expired': AlertCircle,
+	'training.updated': Edit,
+	'training_requirement.created': Plus,
+	'training_requirement.updated': Edit,
+	'training_requirement.deleted': Trash2,
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -178,6 +205,12 @@ const ACTION_LABELS: Record<string, string> = {
 	'team.member_returned': 'Returned team member',
 	'team.member_suspended': 'Suspended team member',
 	'team.role_changed': 'Changed team role',
+	'training.completed': 'Completed training',
+	'training.expired': 'Training expired',
+	'training.updated': 'Updated training',
+	'training_requirement.created': 'Created training requirement',
+	'training_requirement.updated': 'Updated training requirement',
+	'training_requirement.deleted': 'Deleted training requirement',
 };
 
 const ENTITY_ICONS: Record<string, typeof FileText> = {
@@ -192,6 +225,8 @@ const ENTITY_ICONS: Record<string, typeof FileText> = {
 	invitation: Mail,
 	reference: Mail,
 	team_member: Users,
+	training_record: CheckCircle,
+	training_requirement: FileText,
 	audit_export: ShieldCheck,
 };
 
@@ -213,6 +248,8 @@ export default function AuditLogsPage() {
 	const [capabilities, setCapabilities] = useState<AuditCapabilities>(
 		DEFAULT_AUDIT_CAPABILITIES,
 	);
+	const [cqcCoverage, setCqcCoverage] =
+		useState<CqcCoverage>(DEFAULT_CQC_COVERAGE);
 	const verifyInputRef = useRef<HTMLInputElement | null>(null);
 	const pageSize = 20;
 
@@ -227,6 +264,7 @@ export default function AuditLogsPage() {
 			logs?: AuditLog[];
 			totalPages?: number;
 			capabilities?: AuditCapabilities;
+			cqcCoverage?: Partial<CqcCoverage>;
 			warnings?: string[];
 			error?: string;
 		};
@@ -235,10 +273,12 @@ export default function AuditLogsPage() {
 			toast.error(payload.error ?? 'Audit logs could not be loaded');
 			setLogs([]);
 			setTotalPages(1);
+			setCqcCoverage(DEFAULT_CQC_COVERAGE);
 		} else {
 			setLogs(payload.logs ?? []);
 			setTotalPages(payload.totalPages ?? 1);
 			setCapabilities(payload.capabilities ?? DEFAULT_AUDIT_CAPABILITIES);
+			setCqcCoverage({ ...DEFAULT_CQC_COVERAGE, ...payload.cqcCoverage });
 			payload.warnings?.forEach((warning) => toast.warning(warning));
 		}
 		setLoading(false);
@@ -375,10 +415,10 @@ export default function AuditLogsPage() {
 	const label = (value: string | null) =>
 		value ? value.replace(/_/g, ' ').replace(/^\w/, (char) => char.toUpperCase()) : 'Unspecified';
 
-	const cqcCoverage = ['safe', 'effective', 'caring', 'responsive', 'well_led'].map(
+	const cqcCoverageItems = CQC_KEY_QUESTIONS.map(
 		(key) => ({
 			key,
-			count: logs.filter((log) => log.cqc_key_question === key).length,
+			count: cqcCoverage[key],
 		}),
 	);
 
@@ -457,7 +497,7 @@ export default function AuditLogsPage() {
 
 				{capabilities.advancedAudit && (
 					<div className='grid gap-4 sm:grid-cols-3 md:grid-cols-5'>
-						{cqcCoverage.map((item) => (
+						{cqcCoverageItems.map((item) => (
 							<div
 								key={item.key}
 								className='rounded-xl border border-line bg-white p-4 shadow-card'>
@@ -508,6 +548,8 @@ export default function AuditLogsPage() {
 							<SelectItem value='billing'>Billing</SelectItem>
 							<SelectItem value='document_type'>Requirements</SelectItem>
 							<SelectItem value='team_member'>Team Members</SelectItem>
+							<SelectItem value='training_record'>Training Records</SelectItem>
+							<SelectItem value='training_requirement'>Training Requirements</SelectItem>
 						</SelectContent>
 					</Select>
 					{capabilities.advancedAudit && (
@@ -522,6 +564,7 @@ export default function AuditLogsPage() {
 								<SelectItem value='governance'>Governance</SelectItem>
 								<SelectItem value='onboarding'>Onboarding</SelectItem>
 								<SelectItem value='staffing'>Staffing</SelectItem>
+								<SelectItem value='training'>Training</SelectItem>
 							</SelectContent>
 						</Select>
 					)}

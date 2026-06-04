@@ -58,10 +58,14 @@ type InvitationRow = {
 		| {
 				name: string;
 				slug: string;
+				required_work_references_count: number | null;
+				required_character_references_count: number | null;
 		  }
 		| {
 				name: string;
 				slug: string;
+				required_work_references_count: number | null;
+				required_character_references_count: number | null;
 		  }[]
 		| null;
 };
@@ -95,6 +99,8 @@ export type CarerOnboardingContext = {
 	organization: {
 		name: string;
 		slug: string;
+		required_work_references_count: number | null;
+		required_character_references_count: number | null;
 	} | null;
 };
 
@@ -126,7 +132,7 @@ export async function getCarerOnboardingContext(
 	const { data, error } = await admin
 		.from('organization_invitations')
 		.select(
-			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email, status, onboarding_progress), organizations(name, slug)',
+			'id, organization_id, invite_type, email, status, expires_at, carer_id, carers(id, organization_id, full_name, email, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email, status, onboarding_progress), organizations(name, slug, required_work_references_count, required_character_references_count)',
 		)
 		.eq('token', token)
 		.maybeSingle();
@@ -196,9 +202,23 @@ export async function updateCarerOnboardingProgress(
 	organizationId: string,
 	options: { preserveEmploymentStatus?: boolean; statusOverride?: string } = {},
 ) {
-	const [{ data: carer }, { data: requiredTypes }, { data: documents }, { data: refRows }] =
-		await Promise.all([
+	const [
+		{ data: carer },
+		{ data: organization },
+		{ data: requiredTypes },
+		{ data: documents },
+		{ data: refRows },
+		{ data: trainingRequirements },
+		{ data: trainingRecords },
+	] = await Promise.all([
 			admin.from('carers').select('status').eq('id', carerId).maybeSingle(),
+			admin
+				.from('organizations')
+				.select(
+					'required_work_references_count, required_character_references_count',
+				)
+				.eq('id', organizationId)
+				.maybeSingle(),
 			admin
 				.from('document_types')
 				.select('id')
@@ -211,6 +231,16 @@ export async function updateCarerOnboardingProgress(
 			admin
 				.from('carer_references')
 				.select('reference_type, status')
+				.eq('carer_id', carerId),
+			admin
+				.from('training_requirements')
+				.select('id')
+				.eq('organization_id', organizationId)
+				.eq('is_required', true)
+				.eq('is_active', true),
+			admin
+				.from('carer_training_records')
+				.select('training_requirement_id, status, expiry_date')
 				.eq('carer_id', carerId),
 		]);
 
@@ -239,8 +269,8 @@ export async function updateCarerOnboardingProgress(
 		}
 	});
 
-	const reqWork = 0;
-	const reqChar = 0;
+	const reqWork = organization?.required_work_references_count ?? 0;
+	const reqChar = organization?.required_character_references_count ?? 0;
 	const approvedReferences = (refRows ?? []).filter((r) => r.status === 'approved');
 	const workCount = approvedReferences.filter((r) => r.reference_type === 'work').length;
 	const charCount = approvedReferences.filter((r) => r.reference_type === 'character').length;
@@ -249,17 +279,40 @@ export async function updateCarerOnboardingProgress(
 	const workDone = reqWork > 0 && workCount >= reqWork ? 1 : 0;
 	const charDone = reqChar > 0 && charCount >= reqChar ? 1 : 0;
 
-	const totalSlots = requiredIds.size + workSlot + charSlot;
-	const filledSlots = approvedRequiredIds.size + workDone + charDone;
+	const requiredTrainingIds = new Set(
+		(trainingRequirements ?? []).map((requirement) => requirement.id),
+	);
+	const completedTrainingIds = new Set<string>();
+
+	(trainingRecords ?? []).forEach((record) => {
+		if (!requiredTrainingIds.has(record.training_requirement_id)) return;
+
+		const expiryDate = record.expiry_date ? new Date(record.expiry_date) : null;
+		if (expiryDate) {
+			expiryDate.setHours(0, 0, 0, 0);
+		}
+		const isUnexpired = !expiryDate || expiryDate >= today;
+
+		if (record.status === 'completed' && isUnexpired) {
+			completedTrainingIds.add(record.training_requirement_id);
+		}
+	});
+
+	const totalSlots = requiredIds.size + workSlot + charSlot + requiredTrainingIds.size;
+	const filledSlots =
+		approvedRequiredIds.size + workDone + charDone + completedTrainingIds.size;
 
 	const progress = totalSlots === 0 ? 0 : Math.round((filledSlots / totalSlots) * 100);
 
 	const allDocsDone = requiredIds.size === 0 || approvedRequiredIds.size === requiredIds.size;
 	const allRefsDone = workDone === workSlot && charDone === charSlot;
+	const allTrainingDone =
+		requiredTrainingIds.size === 0 ||
+		completedTrainingIds.size === requiredTrainingIds.size;
 	const status =
 		totalSlots === 0 || (!hasSubmittedRequiredDocument && requiredIds.size > 0)
 			? 'pending'
-			: allDocsDone && allRefsDone
+			: allDocsDone && allRefsDone && allTrainingDone
 				? 'active'
 				: 'incomplete';
 	const nextStatus = options.statusOverride ?? status;

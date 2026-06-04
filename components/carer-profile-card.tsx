@@ -195,22 +195,49 @@ export function CarerProfileCard({ carer }: { carer: CarerDetails }) {
 export function PersonDetailsForm({
 	form,
 	onChange,
+	email,
+	onEmailChange,
 }: {
 	form: PersonDetailsInput;
 	onChange: (field: keyof PersonDetailsInput, value: string) => void;
+	email?: string;
+	onEmailChange?: (value: string) => void;
 }) {
 	return (
-		<div className='grid gap-4 py-2 sm:grid-cols-2'>
-			<Field label='Phone' value={form.phone ?? ''} onChange={(value) => onChange('phone', value)} type='tel' />
-			<Field label='Address line 1' value={form.addressLine1 ?? ''} onChange={(value) => onChange('addressLine1', value)} />
-			<Field label='Address line 2' value={form.addressLine2 ?? ''} onChange={(value) => onChange('addressLine2', value)} />
-			<Field label='Town / city' value={form.city ?? ''} onChange={(value) => onChange('city', value)} />
-			<Field label='County' value={form.county ?? ''} onChange={(value) => onChange('county', value)} />
-			<Field label='Postcode' value={form.postcode ?? ''} onChange={(value) => onChange('postcode', value)} />
-			<Field label='Emergency contact name' value={form.emergencyContactName ?? ''} onChange={(value) => onChange('emergencyContactName', value)} />
-			<Field label='Emergency relationship' value={form.emergencyContactRelationship ?? ''} onChange={(value) => onChange('emergencyContactRelationship', value)} />
-			<Field label='Emergency phone' value={form.emergencyContactPhone ?? ''} onChange={(value) => onChange('emergencyContactPhone', value)} type='tel' />
-			<Field label='Emergency email' value={form.emergencyContactEmail ?? ''} onChange={(value) => onChange('emergencyContactEmail', value)} type='email' />
+		<div className='space-y-6'>
+			{/* Contact */}
+			<div>
+				<p className='mb-3 text-[11px] font-semibold uppercase tracking-[0.10em] text-slate-400'>Contact</p>
+				<div className='grid gap-4 sm:grid-cols-2'>
+					<Field label='Phone' value={form.phone ?? ''} onChange={(value) => onChange('phone', value)} type='tel' />
+					{onEmailChange !== undefined && (
+						<Field label='Email' value={email ?? ''} onChange={onEmailChange} type='email' />
+					)}
+				</div>
+			</div>
+
+			{/* Address */}
+			<div>
+				<p className='mb-3 text-[11px] font-semibold uppercase tracking-[0.10em] text-slate-400'>Address</p>
+				<div className='grid gap-4 sm:grid-cols-2'>
+					<Field label='Address line 1' value={form.addressLine1 ?? ''} onChange={(value) => onChange('addressLine1', value)} className='sm:col-span-2' />
+					<Field label='Address line 2' value={form.addressLine2 ?? ''} onChange={(value) => onChange('addressLine2', value)} className='sm:col-span-2' />
+					<Field label='Town / city' value={form.city ?? ''} onChange={(value) => onChange('city', value)} />
+					<Field label='County' value={form.county ?? ''} onChange={(value) => onChange('county', value)} />
+					<Field label='Postcode' value={form.postcode ?? ''} onChange={(value) => onChange('postcode', value)} />
+				</div>
+			</div>
+
+			{/* Emergency contact */}
+			<div>
+				<p className='mb-3 text-[11px] font-semibold uppercase tracking-[0.10em] text-slate-400'>Emergency contact</p>
+				<div className='grid gap-4 sm:grid-cols-2'>
+					<Field label='Emergency contact name' value={form.emergencyContactName ?? ''} onChange={(value) => onChange('emergencyContactName', value)} />
+					<Field label='Emergency relationship' value={form.emergencyContactRelationship ?? ''} onChange={(value) => onChange('emergencyContactRelationship', value)} />
+					<Field label='Emergency phone' value={form.emergencyContactPhone ?? ''} onChange={(value) => onChange('emergencyContactPhone', value)} type='tel' />
+					<Field label='Emergency email' value={form.emergencyContactEmail ?? ''} onChange={(value) => onChange('emergencyContactEmail', value)} type='email' />
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -220,15 +247,17 @@ function Field({
 	value,
 	onChange,
 	type = 'text',
+	className,
 }: {
 	label: string;
 	value: string;
 	onChange: (value: string) => void;
 	type?: string;
+	className?: string;
 }) {
 	const id = label.toLowerCase().replace(/[^a-z0-9]+/g, '-');
 	return (
-		<div className='space-y-2'>
+		<div className={`space-y-2${className ? ` ${className}` : ''}`}>
 			<Label htmlFor={id}>{label}</Label>
 			<Input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
 		</div>

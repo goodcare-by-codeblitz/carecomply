@@ -10,6 +10,11 @@ INSERT INTO permissions (code, name, description, category) VALUES
   ('documents.upload', 'Upload Documents', 'Can upload documents for carers', 'Documents'),
   ('documents.review', 'Review Documents', 'Can approve or reject documents', 'Documents'),
   ('documents.delete', 'Delete Documents', 'Can delete documents', 'Documents'),
+
+  -- Training permissions
+  ('training.view', 'View Training', 'Can view onsite training requirements and records', 'Training'),
+  ('training.record', 'Record Training', 'Can mark onsite training completed and observed', 'Training'),
+  ('training.manage', 'Manage Training', 'Can configure onsite training requirements', 'Training'),
   
   -- Automation permissions
   ('automations.view', 'View Automations', 'Can view reminder rules', 'Automations'),

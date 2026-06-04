@@ -2,7 +2,11 @@
 
 import { initOrgStore } from '@/lib/init-org';
 import { initProfile } from '@/lib/init-profile';
-import { getOrgRedirectPath, type UserOrganization } from '@/lib/orgs';
+import {
+  getPostLoginRedirect,
+  type PlatformAccess,
+} from '@/lib/login-redirect';
+import type { UserOrganization } from '@/lib/orgs';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -18,11 +22,6 @@ type PendingCreateOrg = {
   orgSlug?: string;
   plan?: string;
   interval?: string;
-};
-
-type PlatformAccess = {
-  role: 'platform_super_admin' | 'platform_admin' | 'support' | null;
-  canAccessAdmin: boolean;
 };
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -41,7 +40,6 @@ export function LoginForm() {
   const [isLoading, setIsLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [inviteRedirect, setInviteRedirect] = useState<string | null>(null);
-  const [adminRedirect, setAdminRedirect] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -56,7 +54,6 @@ export function LoginForm() {
       setNotice('Log in to add a new organization to your account.');
     }
     if (nextParam === 'admin') {
-      setAdminRedirect(true);
       setNotice('Log in with a platform admin account to continue.');
     }
     if (nextParam === 'invite' && tokenParam) {
@@ -109,20 +106,15 @@ export function LoginForm() {
       await initOrgStore();
 
       const organizations = payload.organizations;
-      const pendingCreateOrgRedirect =
-        organizations.length === 0 || organizations.length === 1
-          ? getCreateOrgRedirect(email)
-          : null;
-      const platformAdminRedirect =
-        payload.platformAccess?.canAccessAdmin
-          ? '/admin/reminders'
-          : null;
+      const pendingCreateOrgRedirect = getCreateOrgRedirect(email);
 
       router.push(
-        inviteRedirect ??
-          pendingCreateOrgRedirect ??
-          platformAdminRedirect ??
-          getOrgRedirectPath(organizations),
+        getPostLoginRedirect({
+          inviteRedirect,
+          pendingCreateOrgRedirect,
+          platformAccess: payload.platformAccess,
+          organizations,
+        }),
       );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred');

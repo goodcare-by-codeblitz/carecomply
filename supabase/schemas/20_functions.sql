@@ -57,7 +57,9 @@ begin
     'documents.view',
     'documents.review',
     'automations.view',
-    'audit.view'
+    'audit.view',
+    'training.view',
+    'training.record'
   )
   on conflict (role_id, permission_id) do nothing;
 
@@ -262,6 +264,77 @@ as $function$
   );
 $function$;
 
+create or replace function public.prevent_last_org_admin_removal()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $function$
+declare
+  admin_role_id uuid;
+  remaining_admin_count integer;
+  old_counts_as_admin boolean;
+  new_counts_as_admin boolean := false;
+begin
+  select id into admin_role_id
+  from public.roles
+  where organization_id = old.organization_id
+    and name = 'admin';
+
+  if admin_role_id is null then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    return new;
+  end if;
+
+  old_counts_as_admin :=
+    old.role_id = admin_role_id
+    and old.deleted_at is null
+    and coalesce(old.status, 'active') in ('active', 'on_leave');
+
+  if not old_counts_as_admin then
+    if tg_op = 'DELETE' then
+      return old;
+    end if;
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    new_counts_as_admin :=
+      new.organization_id = old.organization_id
+      and new.role_id = admin_role_id
+      and new.deleted_at is null
+      and coalesce(new.status, 'active') in ('active', 'on_leave');
+
+    if new_counts_as_admin then
+      return new;
+    end if;
+  end if;
+
+  select count(*) into remaining_admin_count
+  from public.organization_memberships om
+  where om.organization_id = old.organization_id
+    and om.id <> old.id
+    and om.role_id = admin_role_id
+    and om.deleted_at is null
+    and coalesce(om.status, 'active') in ('active', 'on_leave');
+
+  if remaining_admin_count < 1 then
+    raise exception 'Every organization must have at least one active admin.'
+      using errcode = 'check_violation';
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$function$;
+
+revoke all on function public.prevent_last_org_admin_removal()
+from public, anon, authenticated;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -298,6 +371,26 @@ create trigger set_reference_jobs_updated_at
 before update on public.reference_jobs
 for each row
 execute function public.set_updated_at();
+
+drop trigger if exists set_training_requirements_updated_at on public.training_requirements;
+create trigger set_training_requirements_updated_at
+before update on public.training_requirements
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists set_carer_training_records_updated_at on public.carer_training_records;
+create trigger set_carer_training_records_updated_at
+before update on public.carer_training_records
+for each row
+execute function public.set_updated_at();
+
+drop trigger if exists prevent_last_org_admin_removal
+on public.organization_memberships;
+create trigger prevent_last_org_admin_removal
+before update of organization_id, role_id, status, deleted_at
+or delete on public.organization_memberships
+for each row
+execute function public.prevent_last_org_admin_removal();
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
@@ -376,6 +469,7 @@ set search_path = public
 as $function$
 declare
   inserted_count integer := 0;
+  training_inserted_count integer := 0;
 begin
   perform public.ensure_default_reminders(id) from public.organizations;
 
@@ -384,6 +478,7 @@ begin
     reminder_id,
     carer_id,
     document_id,
+    training_record_id,
     recipient_type,
     recipient_email,
     recipient_name,
@@ -396,18 +491,14 @@ begin
     r.id,
     c.id,
     d.id,
+    null::uuid,
     r.recipient_type,
     case when r.recipient_type = 'carer' then c.email else null end,
     case when r.recipient_type = 'carer' then c.full_name else 'Management' end,
     p_run_date,
-    concat_ws(
-      ':',
-      r.id::text,
-      d.id::text,
-      r.recipient_type,
-      p_run_date::text
-    ),
+    concat_ws(':', r.id::text, d.id::text, r.recipient_type, p_run_date::text),
     jsonb_build_object(
+      'item_kind', 'document',
       'carer_name', c.full_name,
       'carer_email', c.email,
       'document_type', dt.name,
@@ -464,6 +555,75 @@ begin
   on conflict (idempotency_key) do nothing;
 
   get diagnostics inserted_count = row_count;
+
+  insert into public.reminder_jobs (
+    organization_id,
+    reminder_id,
+    carer_id,
+    document_id,
+    training_record_id,
+    recipient_type,
+    recipient_email,
+    recipient_name,
+    due_on,
+    idempotency_key,
+    payload
+  )
+  select
+    c.organization_id,
+    r.id,
+    c.id,
+    null::uuid,
+    ctr.id,
+    r.recipient_type,
+    case when r.recipient_type = 'carer' then c.email else null end,
+    case when r.recipient_type = 'carer' then c.full_name else 'Management' end,
+    p_run_date,
+    concat_ws(':', 'training', r.id::text, ctr.id::text, r.recipient_type, p_run_date::text),
+    jsonb_build_object(
+      'item_kind', 'training',
+      'carer_name', c.full_name,
+      'carer_email', c.email,
+      'document_type', tr.name,
+      'training_requirement', tr.name,
+      'training_requirement_id', tr.id,
+      'training_record_id', ctr.id,
+      'expiry_date', ctr.expiry_date,
+      'organization_name', o.name,
+      'organization_slug', o.slug,
+      'subject_template', replace(coalesce(r.subject_template, '{{document_type}} expires on {{expiry_date}}'), '{{document_type}}', '{{training_requirement}}'),
+      'message_template', replace(coalesce(r.message_template, 'Hi {{carer_name}}, your {{document_type}} for {{organization_name}} expires on {{expiry_date}}.'), '{{document_type}}', '{{training_requirement}}'),
+      'trigger_type', r.trigger_type,
+      'trigger_days', r.trigger_days
+    )
+  from public.carer_training_records ctr
+  join public.carers c on c.id = ctr.carer_id
+  join public.organizations o on o.id = c.organization_id
+  join public.training_requirements tr on tr.id = ctr.training_requirement_id
+  join public.reminders r on r.organization_id = c.organization_id
+  left join public.organization_billing ob on ob.organization_id = c.organization_id
+  where r.is_active = true
+    and r.document_type_id is null
+    and c.status = 'active'
+    and tr.is_active = true
+    and ctr.status = 'completed'
+    and ctr.expiry_date is not null
+    and (
+      r.min_plan = 'starter'
+      or (
+        r.min_plan = 'pro'
+        and coalesce(ob.plan, 'starter') = 'pro'
+        and coalesce(ob.status, 'trialing') in ('trialing', 'active')
+      )
+    )
+    and (
+      (r.trigger_type = 'days_before_expiry' and ctr.expiry_date = p_run_date + coalesce(r.trigger_days, 0))
+      or (r.trigger_type = 'days_after_expiry' and ctr.expiry_date = p_run_date - coalesce(r.trigger_days, 0))
+    )
+  on conflict (idempotency_key) do nothing;
+
+  get diagnostics training_inserted_count = row_count;
+  inserted_count := inserted_count + training_inserted_count;
   return inserted_count;
 end;
 $function$;

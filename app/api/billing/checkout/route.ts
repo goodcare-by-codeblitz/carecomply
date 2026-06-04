@@ -7,6 +7,17 @@ import {
 	type BillingPlan,
 } from '@/lib/billing';
 import { createUserAuditLog } from '@/lib/audit-server';
+import {
+	blocksNewCheckout,
+	canReusePendingCheckout,
+	getCheckoutCustomerParams,
+	getCheckoutIdempotencyKey,
+} from '@/lib/billing-checkout';
+import { captureBillingException } from '@/lib/billing-monitoring';
+import {
+	billingStripeErrorResponse,
+	getSafeStripeErrorDebug,
+} from '@/lib/billing-stripe-errors';
 import { PERMISSIONS } from '@/lib/permissions';
 import { getStripe } from '@/lib/stripe';
 import { createClient } from '@/lib/supabase/server';
@@ -110,7 +121,7 @@ export async function POST(request: Request) {
 
 	const { data: billing } = await supabase
 		.from('organization_billing')
-		.select('plan, interval, stripe_customer_id, stripe_subscription_id, status')
+		.select('plan, interval, stripe_customer_id, stripe_subscription_id, status, pending_checkout_session_id, pending_checkout_url, pending_checkout_plan, pending_checkout_interval, pending_checkout_expires_at')
 		.eq('organization_id', organization.id)
 		.maybeSingle();
 	const entitlements = getBillingEntitlements(billing?.plan, billing?.status);
@@ -130,8 +141,10 @@ export async function POST(request: Request) {
 	}
 
 	if (
-		billing?.stripe_subscription_id &&
-		billing.status !== 'canceled'
+		blocksNewCheckout({
+			stripeSubscriptionId: billing?.stripe_subscription_id,
+			status: billing?.status,
+		})
 	) {
 		return NextResponse.json(
 			{
@@ -145,7 +158,55 @@ export async function POST(request: Request) {
 	}
 
 	const origin = new URL(request.url).origin;
-	const stripe = getStripe();
+	let stripe: Stripe;
+	let pendingSession: Stripe.Checkout.Session | null;
+	try {
+		stripe = getStripe();
+		pendingSession = await getReusablePendingSession({
+			stripe,
+			sessionId: billing?.pending_checkout_session_id,
+			sessionUrl: billing?.pending_checkout_url,
+			expiresAt: billing?.pending_checkout_expires_at,
+			planId: billing?.pending_checkout_plan,
+			interval: billing?.pending_checkout_interval,
+			targetPlanId: plan.id,
+			targetInterval: interval,
+		});
+	} catch (error) {
+		captureBillingException(error, {
+			operation: 'checkout_stripe_initialize',
+			organizationId: organization.id,
+			extra: { plan: plan.id, interval },
+		});
+		return billingStripeErrorResponse(error, {
+			code: 'stripe_checkout_session_failed',
+			message: 'Checkout could not be started.',
+		});
+	}
+
+	if (pendingSession) {
+		await createUserAuditLog({
+			action: 'billing.checkout_started',
+			entityType: 'billing',
+			organizationId: organization.id,
+			entityId: organization.id,
+			entityName: `${plan.name} ${interval}`,
+			details: {
+				plan: plan.id,
+				plan_name: plan.name,
+				interval,
+				stripe_checkout_session_id: pendingSession.id,
+				stripe_customer_id: billing?.stripe_customer_id ?? null,
+				stripe_price_id: priceId,
+				permission_checked: PERMISSIONS.BILLING_MANAGE,
+				outcome: 'pending_checkout_session_reused',
+			},
+			request,
+		});
+
+		return NextResponse.json({ ok: true, url: pendingSession.url, reused: true });
+	}
+
 	const price = await getCheckoutPrice(stripe, priceId);
 
 	if (!price) {
@@ -168,37 +229,100 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const session = await stripe.checkout.sessions.create({
-		mode: 'subscription',
-		customer: billing?.stripe_customer_id ?? undefined,
-		customer_email: billing?.stripe_customer_id ? undefined : user.email,
-		client_reference_id: organization.id,
-		line_items: [{ price: priceId, quantity: 1 }],
-		allow_promotion_codes: true,
-		billing_address_collection: 'auto',
-		success_url: `${origin}/${organization.slug}/settings/billing?billing=success&session_id={CHECKOUT_SESSION_ID}`,
-		cancel_url: `${origin}/${organization.slug}/settings/billing?billing=cancelled`,
-		custom_text: {
-			submit: {
-				message:
-					'CareComply will activate your organization subscription after Stripe confirms payment.',
+	const idempotencyKey = getCheckoutIdempotencyKey({
+		organizationId: organization.id,
+		plan: plan.id,
+		interval,
+	});
+	let session: Stripe.Checkout.Session;
+	try {
+		session = await stripe.checkout.sessions.create(
+			{
+				mode: 'subscription',
+				...getCheckoutCustomerParams({
+					stripeCustomerId: billing?.stripe_customer_id,
+					customerEmail: user.email,
+				}),
+				client_reference_id: organization.id,
+				line_items: [{ price: priceId, quantity: 1 }],
+				allow_promotion_codes: true,
+				billing_address_collection: 'auto',
+				automatic_tax: { enabled: true },
+				success_url: `${origin}/${organization.slug}/settings/billing?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+				cancel_url: `${origin}/${organization.slug}/settings/billing?billing=cancelled`,
+				custom_text: {
+					submit: {
+						message:
+							'CareComply will activate your organization subscription after Stripe confirms payment.',
+					},
+				},
+				metadata: {
+					organization_id: organization.id,
+					user_id: user.id,
+					plan: plan.id,
+					interval,
+				},
+				subscription_data: {
+					metadata: {
+						organization_id: organization.id,
+						user_id: user.id,
+						plan: plan.id,
+						interval,
+					},
+				},
 			},
-		},
-		metadata: {
-			organization_id: organization.id,
-			user_id: user.id,
+			{ idempotencyKey },
+		);
+	} catch (error) {
+		const stripeDebug = getSafeStripeErrorDebug(error);
+		captureBillingException(error, {
+			operation: 'checkout_session_create',
+			organizationId: organization.id,
+			extra: { plan: plan.id, interval },
+		});
+		console.error('[billing-checkout] checkout session create failed', {
+			operation: 'checkout_session_create',
+			organizationId: organization.id,
 			plan: plan.id,
 			interval,
-		},
-		subscription_data: {
-			metadata: {
-				organization_id: organization.id,
-				user_id: user.id,
-				plan: plan.id,
-				interval,
+			stripe: stripeDebug,
+		});
+		return billingStripeErrorResponse(
+			error,
+			{
+				code: 'stripe_checkout_session_failed',
+				message: 'Checkout could not be started.',
 			},
-		},
-	});
+			{
+				includeDebug: true,
+			},
+		);
+	}
+
+	const { error: pendingUpdateError } = await supabase
+		.from('organization_billing')
+		.update({
+			pending_checkout_session_id: session.id,
+			pending_checkout_url: session.url,
+			pending_checkout_plan: plan.id,
+			pending_checkout_interval: interval,
+			pending_checkout_expires_at: session.expires_at
+				? new Date(session.expires_at * 1000).toISOString()
+				: null,
+		})
+		.eq('organization_id', organization.id);
+
+	if (pendingUpdateError) {
+		captureBillingException(pendingUpdateError, {
+			operation: 'checkout_pending_session_store',
+			organizationId: organization.id,
+			extra: { stripe_checkout_session_id: session.id },
+		});
+		console.error('[billing-checkout] pending session could not be stored', {
+			organizationId: organization.id,
+			error: pendingUpdateError,
+		});
+	}
 
 	await createUserAuditLog({
 		action: 'billing.checkout_started',
@@ -226,6 +350,55 @@ async function getCheckoutPrice(stripe: Stripe, priceId: string) {
 	try {
 		return await stripe.prices.retrieve(priceId);
 	} catch {
+		return null;
+	}
+}
+
+async function getReusablePendingSession({
+	stripe,
+	sessionId,
+	sessionUrl,
+	expiresAt,
+	planId,
+	interval,
+	targetPlanId,
+	targetInterval,
+}: {
+	stripe: Stripe;
+	sessionId?: string | null;
+	sessionUrl?: string | null;
+	expiresAt?: string | null;
+	planId?: string | null;
+	interval?: string | null;
+	targetPlanId: BillingPlan;
+	targetInterval: BillingInterval;
+}) {
+	if (
+		!canReusePendingCheckout(
+			{
+				sessionId,
+				sessionUrl,
+				plan: planId,
+				interval,
+				expiresAt,
+			},
+			{ plan: targetPlanId, interval: targetInterval },
+		)
+	) {
+		return null;
+	}
+
+	if (!sessionId) return null;
+
+	try {
+		const session = await stripe.checkout.sessions.retrieve(sessionId);
+		if (session.status === 'open' && session.url) return session;
+		return null;
+	} catch (error) {
+		captureBillingException(error, {
+			operation: 'checkout_pending_session_retrieve',
+			extra: { stripe_checkout_session_id: sessionId },
+		});
 		return null;
 	}
 }

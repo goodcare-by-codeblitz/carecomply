@@ -122,7 +122,15 @@ export async function GET(request: Request) {
 	const orgId = requestedOrgId || organizations?.[0]?.id || null;
 
 	if (!orgId) {
-		return NextResponse.json({ organizations: [], selectedOrgId: null });
+		return NextResponse.json({
+			organizations: [],
+			selectedOrgId: null,
+			configuration: null,
+			counts: { queued: 0, processing: 0, sent: 0, failed: 0, skipped: 0, dueQueued: 0 },
+			recentJobs: [],
+			recentLogs: [],
+			reminders: [],
+		});
 	}
 
 	const now = new Date().toISOString();

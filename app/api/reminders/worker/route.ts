@@ -2,6 +2,8 @@ import {
 	canReceiveOperationalCommunication,
 	carerCommunicationBlockedMessage,
 } from '@/lib/carer-communications';
+import { DocumentExpiryReminder } from '@/emails';
+import { renderEmailTemplate } from '@/emails/render';
 import { getInvitationLink } from '@/lib/invitations';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
@@ -13,6 +15,7 @@ type ReminderJob = {
 	reminder_id: string | null;
 	carer_id: string;
 	document_id: string | null;
+	training_record_id: string | null;
 	recipient_type: 'carer' | 'management';
 	recipient_email: string | null;
 	recipient_name: string | null;
@@ -38,6 +41,12 @@ type DocumentEligibility = {
 	status: string | null;
 	superseded_by: string | null;
 	expiry_date: string | null;
+};
+
+type TrainingEligibility = {
+	status: string | null;
+	expiry_date: string | null;
+	training_requirements: { is_active: boolean | null } | { is_active: boolean | null }[] | null;
 };
 
 const DEFAULT_BATCH_SIZE = 25;
@@ -133,6 +142,28 @@ async function processJob(
 			return 'skipped';
 		}
 
+		const trainingEligibility = await getTrainingEligibility(
+			admin,
+			job.training_record_id,
+		);
+		if (trainingEligibility && trainingEligibility.status !== 'completed') {
+			await markSkipped(admin, job, 'Training is no longer completed.');
+			return 'skipped';
+		}
+
+		const trainingRequirement = normalizeRelation(
+			trainingEligibility?.training_requirements,
+		);
+		if (trainingEligibility && trainingRequirement?.is_active === false) {
+			await markSkipped(admin, job, 'Training requirement is no longer active.');
+			return 'skipped';
+		}
+
+		if (trainingEligibility && !isTrainingStillDue(job, trainingEligibility)) {
+			await markSkipped(admin, job, 'Training is no longer due for this reminder.');
+			return 'skipped';
+		}
+
 		const apiKey = process.env.RESEND_API_KEY;
 		const fromEmail = process.env.RESEND_FROM_EMAIL;
 
@@ -172,12 +203,27 @@ async function processJob(
 				'Please review your CareComply document status.',
 			context,
 		);
+		const html =
+			shouldUseDocumentExpiryTemplate(job, documentEligibility)
+				? await renderEmailTemplate(DocumentExpiryReminder, {
+						recipientName:
+							validRecipients[0]?.full_name || context.carer_name || 'there',
+						organizationName: context.organization_name,
+						documentName: context.document_type || 'Document',
+						expiryDate: context.expiry_date,
+						daysRemaining: calculateDaysRemaining(
+							documentEligibility?.expiry_date ?? '',
+						),
+						uploadUrl: context.onboarding_link,
+						supportEmail: fromEmail,
+					})
+				: toHtml(body);
 		const resend = new Resend(apiKey);
 		const { data, error } = await resend.emails.send({
 			from: `${context.organization_name} <${fromEmail}>`,
 			to: validRecipients.map((recipient) => recipient.email),
 			subject,
-			html: toHtml(body),
+			html,
 		});
 
 		if (error) {
@@ -250,6 +296,26 @@ async function getDocumentEligibility(
 	return (data ?? null) as DocumentEligibility | null;
 }
 
+async function getTrainingEligibility(
+	admin: ReturnType<typeof createAdminClient>,
+	trainingRecordId: string | null,
+) {
+	if (!trainingRecordId) return null;
+
+	const { data, error } = await admin
+		.from('carer_training_records')
+		.select('status, expiry_date, training_requirements(is_active)')
+		.eq('id', trainingRecordId)
+		.maybeSingle();
+
+	if (error) {
+		console.error('[reminder-worker] failed to resolve training status', error);
+		return null;
+	}
+
+	return (data ?? null) as TrainingEligibility | null;
+}
+
 async function getManagementRecipients(
 	admin: ReturnType<typeof createAdminClient>,
 	organizationId: string,
@@ -307,6 +373,7 @@ async function buildTemplateContext(
 	return {
 		carer_name: getPayloadString(payload.carer_name),
 		document_type: getPayloadString(payload.document_type),
+		training_requirement: getPayloadString(payload.training_requirement),
 		expiry_date: formatDate(getPayloadString(payload.expiry_date)),
 		onboarding_link:
 			onboardingLink ||
@@ -405,6 +472,7 @@ async function insertLog(
 		reminder_job_id: job.id,
 		carer_id: job.carer_id,
 		document_id: job.document_id,
+		training_record_id: job.training_record_id,
 		channel: 'email',
 		recipient_type: job.recipient_type,
 		recipient_email: values.recipientEmail ?? null,
@@ -439,6 +507,57 @@ function isDocumentStillDue(job: ReminderJob, document: DocumentEligibility) {
 	}
 
 	return expectedDue.toISOString().slice(0, 10) === job.due_on;
+}
+
+function isTrainingStillDue(job: ReminderJob, training: TrainingEligibility) {
+	if (!training.expiry_date) return false;
+
+	const triggerType = getPayloadString(job.payload.trigger_type);
+	const triggerDaysRaw = job.payload.trigger_days;
+	const triggerDays =
+		typeof triggerDaysRaw === 'number'
+			? triggerDaysRaw
+			: Number.parseInt(String(triggerDaysRaw ?? '0'), 10) || 0;
+	const expectedDue = new Date(`${training.expiry_date}T00:00:00.000Z`);
+
+	if (triggerType === 'days_before_expiry') {
+		expectedDue.setUTCDate(expectedDue.getUTCDate() - triggerDays);
+	} else if (triggerType === 'days_after_expiry') {
+		expectedDue.setUTCDate(expectedDue.getUTCDate() + triggerDays);
+	} else {
+		return true;
+	}
+
+	return expectedDue.toISOString().slice(0, 10) === job.due_on;
+}
+
+function shouldUseDocumentExpiryTemplate(
+	job: ReminderJob,
+	document: DocumentEligibility | null,
+) {
+	return Boolean(
+		job.recipient_type === 'carer' &&
+			job.document_id &&
+			!job.training_record_id &&
+			document?.expiry_date,
+	);
+}
+
+function calculateDaysRemaining(expiryDate: string) {
+	if (!expiryDate) return 0;
+	const today = new Date();
+	const todayUtc = Date.UTC(
+		today.getUTCFullYear(),
+		today.getUTCMonth(),
+		today.getUTCDate(),
+	);
+	const expiry = new Date(`${expiryDate}T00:00:00.000Z`);
+	const expiryUtc = Date.UTC(
+		expiry.getUTCFullYear(),
+		expiry.getUTCMonth(),
+		expiry.getUTCDate(),
+	);
+	return Math.ceil((expiryUtc - todayUtc) / 86400000);
 }
 
 function renderTemplate(

@@ -10,6 +10,12 @@ export function canReceiveOperationalCommunication(
 	return status === 'active';
 }
 
+export function canReceiveDocumentRejectionCommunication(
+	status: string | null | undefined,
+) {
+	return status === 'pending' || status === 'incomplete' || status === 'active';
+}
+
 export function canReceiveReferenceCommunication(
 	status: string | null | undefined,
 ) {
@@ -21,6 +27,13 @@ export function carerCommunicationBlockedMessage(
 ) {
 	const normalized = status?.replaceAll('_', ' ') || 'unknown';
 	return `Carer communications are only sent to active carers. Current status: ${normalized}.`;
+}
+
+export function documentRejectionCommunicationBlockedMessage(
+	status: string | null | undefined,
+) {
+	const normalized = status?.replaceAll('_', ' ') || 'unknown';
+	return `Document rejection notifications can only be sent while a carer is onboarding or active. Current status: ${normalized}.`;
 }
 
 export function referenceCommunicationBlockedMessage(

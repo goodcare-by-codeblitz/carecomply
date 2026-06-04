@@ -9,6 +9,10 @@ export const PERMISSIONS = {
 	DOCUMENTS_DELETE: 'documents.delete',
 	DOCUMENTS_REVIEW: 'documents.review',
 
+	TRAINING_VIEW: 'training.view',
+	TRAINING_RECORD: 'training.record',
+	TRAINING_MANAGE: 'training.manage',
+
 	TEAM_VIEW: 'team.view',
 	TEAM_INVITE: 'team.invite',
 	TEAM_MANAGE: 'team.manage',

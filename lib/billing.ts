@@ -32,7 +32,16 @@ export type OrganizationBillingSummary = {
 	current_period_end?: string | null;
 	trial_start?: string | null;
 	trial_end?: string | null;
+	grace_period_ends_at?: string | null;
 	cancel_at_period_end?: boolean;
+	billingAccess?: {
+		canAccessApp: boolean;
+		canModifyData: boolean;
+		canUseProFeatures: boolean;
+		isReadOnly: boolean;
+		reason: string;
+		gracePeriodEndsAt: string | null;
+	};
 	isConfigured: boolean;
 };
 
@@ -216,7 +225,16 @@ export const DEFAULT_BILLING_SUMMARY: OrganizationBillingSummary = {
 	current_period_end: null,
 	trial_start: null,
 	trial_end: null,
+	grace_period_ends_at: null,
 	cancel_at_period_end: false,
+	billingAccess: {
+		canAccessApp: false,
+		canModifyData: false,
+		canUseProFeatures: false,
+		isReadOnly: false,
+		reason: 'not_configured',
+		gracePeriodEndsAt: null,
+	},
 	isConfigured: false,
 };
 

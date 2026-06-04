@@ -32,15 +32,12 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import {
-	createInvitationToken,
 	getInvitationLink,
-	getInviteExpiry,
 	INVITATION_SETUP_MESSAGE,
 	isInvitationSetupMissing,
 	type InvitationStatus,
 	type OrganizationInvitation,
 } from '@/lib/invitations';
-import { logAction } from '@/lib/audit';
 import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -131,6 +128,11 @@ type MembershipActionResponse = {
 };
 
 type ManageInvitationResponse = {
+	error?: string;
+	invitation?: OrganizationInvitation;
+};
+
+type CreateTeamInvitationResponse = {
 	error?: string;
 	invitation?: OrganizationInvitation;
 };
@@ -579,7 +581,7 @@ export default function TeamPage() {
 
 	const createTeamInvite = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!organization || !currentUserId || !selectedInviteRole) return;
+		if (!organization || !selectedInviteRole) return;
 
 		if (!invitationsReady) {
 			toast.error(INVITATION_SETUP_MESSAGE);
@@ -587,55 +589,33 @@ export default function TeamPage() {
 		}
 
 		setIsInviting(true);
-		const supabase = createClient();
-		const token = createInvitationToken();
-		const { data, error } = await supabase
-			.from('organization_invitations')
-			.insert({
-				organization_id: organization.id,
-				invite_type: 'team_member',
-				email: inviteEmail.trim().toLowerCase(),
-				token,
-				status: 'pending',
-				role_id: selectedInviteRole.id,
-				invited_by: currentUserId,
-				expires_at: getInviteExpiry(),
-			})
-			.select('*')
-			.single();
+		const response = await fetch('/api/invitations/team', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				orgId: organization.id,
+				email: inviteEmail,
+				roleId: selectedInviteRole.id,
+			}),
+		});
+		const payload = (await response.json()) as CreateTeamInvitationResponse;
 
 		setIsInviting(false);
 
-		if (error) {
+		if (!response.ok || !payload.invitation) {
 			toast.error(
-				isInvitationSetupMissing(error)
-					? INVITATION_SETUP_MESSAGE
-					: 'Team invitation could not be created',
+				payload.error ?? 'Team invitation could not be created',
 			);
 			return;
 		}
 
-		setInvitations((current) => [data as OrganizationInvitation, ...current]);
+		const invitation = payload.invitation;
+		setInvitations((current) => [invitation, ...current]);
 		setInviteEmail('');
 		setIsInviteOpen(false);
-		await logAction({
-			orgId: organization.id,
-			action: 'team.invited',
-			entityType: 'invitation',
-			entityId: data.id,
-			entityName: data.email,
-			details: {
-				email: data.email,
-				role_id: selectedInviteRole.id,
-				role_name: selectedInviteRole.name,
-				invite_type: 'team_member',
-				expires_at: data.expires_at,
-				outcome: 'team_invitation_created',
-			},
-		});
 		const emailResult = await sendInviteEmail({
-			email: data.email,
-			token: data.token,
+			email: invitation.email,
+			token: invitation.token,
 			roleName: selectedInviteRole.name,
 		});
 

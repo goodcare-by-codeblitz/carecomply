@@ -5,6 +5,8 @@ import {
 	normalizeBillingStatus,
 	type BillingInterval,
 } from '@/lib/billing';
+import { evaluateBillingState } from '@/lib/billing-state';
+import { calculateActiveCarers } from '@/lib/billing-usage';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -48,54 +50,58 @@ export async function GET(request: Request) {
 	}
 
 	const admin = createAdminClient();
-	const [{ data: billing }, { count: activeCarers, error: countError }] =
+	const [{ data: billing }, activeCarersResult] =
 		await Promise.all([
 			admin
 				.from('organization_billing')
 				.select(
-					'plan, interval, status, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end, trial_start, trial_end, cancel_at_period_end',
+					'plan, interval, status, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end, trial_start, trial_end, grace_period_ends_at, cancel_at_period_end',
 				)
 				.eq('organization_id', organization.id)
 				.maybeSingle(),
-			admin
-				.from('carers')
-				.select('id', { count: 'exact', head: true })
-				.eq('organization_id', organization.id)
-				.eq('status', 'active'),
+			calculateActiveCarers(admin, organization.id)
+				.then((count) => ({ count, error: null }))
+				.catch((error) => ({ count: 0, error })),
 		]);
 
-	if (countError) {
-		console.error('[billing-summary] active carer count failed', countError);
+	if (activeCarersResult.error) {
+		console.error('[billing-summary] active carer count failed', activeCarersResult.error);
 		return json({ error: 'Billing usage could not be loaded.' }, 500);
 	}
 
 	const normalizedPlan = normalizeBillingPlan(billing?.plan);
 	const normalizedStatus = normalizeBillingStatus(billing?.status);
 	const interval = normalizeBillingInterval(billing?.interval);
+	const billingAccess = evaluateBillingState({
+		plan: billing?.plan,
+		status: billing?.status,
+		grace_period_ends_at: billing?.grace_period_ends_at,
+	});
 	const summary = billing
 		? {
 				...billing,
 				plan: normalizedPlan,
 				status: normalizedStatus,
 				interval,
+				billingAccess,
 				cancel_at_period_end: Boolean(billing.cancel_at_period_end),
 				isConfigured: Boolean(
 					billing.stripe_customer_id ||
 						billing.stripe_subscription_id ||
 						billing.stripe_price_id,
 				),
-			}
+		}
 		: DEFAULT_BILLING_SUMMARY;
 
 	return json({
 		billing: summary,
 		usage: {
-			activeCarers: activeCarers ?? 0,
+			activeCarers: activeCarersResult.count,
 		},
 		priceEstimate: calculateBillingPriceEstimate({
 			plan: normalizedPlan,
 			interval,
-			activeCarers: activeCarers ?? 0,
+			activeCarers: activeCarersResult.count,
 		}),
 	});
 }

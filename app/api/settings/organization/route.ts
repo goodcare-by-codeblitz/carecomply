@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -20,9 +21,16 @@ const logoSchema = baseSchema.extend({
 	logoUrl: z.string().trim().url(),
 });
 
+const referenceRequirementsSchema = baseSchema.extend({
+	action: z.literal('reference_requirements'),
+	requiredWorkReferencesCount: z.number().int().min(1).max(5).nullable(),
+	requiredCharacterReferencesCount: z.number().int().min(1).max(5).nullable(),
+});
+
 const organizationSettingsSchema = z.discriminatedUnion('action', [
 	profileSchema,
 	logoSchema,
+	referenceRequirementsSchema,
 ]);
 
 async function requireSettingsManage(orgId: string) {
@@ -70,11 +78,15 @@ export async function PATCH(request: Request) {
 
 	const auth = await requireSettingsManage(result.data.orgId);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const admin = createAdminClient();
 	const { data: before, error: beforeError } = await admin
 		.from('organizations')
-		.select('id, name, slug, logo_url, logo_path')
+		.select(
+			'id, name, slug, logo_url, logo_path, required_work_references_count, required_character_references_count',
+		)
 		.eq('id', result.data.orgId)
 		.maybeSingle();
 
@@ -88,7 +100,14 @@ export async function PATCH(request: Request) {
 	const update =
 		result.data.action === 'profile'
 			? { name: result.data.name }
-			: { logo_path: result.data.logoPath, logo_url: result.data.logoUrl };
+			: result.data.action === 'logo'
+				? { logo_path: result.data.logoPath, logo_url: result.data.logoUrl }
+				: {
+						required_work_references_count:
+							result.data.requiredWorkReferencesCount,
+						required_character_references_count:
+							result.data.requiredCharacterReferencesCount,
+					};
 
 	const { data: after, error } = await admin
 		.from('organizations')
@@ -105,7 +124,14 @@ export async function PATCH(request: Request) {
 	}
 
 	const changedFields =
-		result.data.action === 'profile' ? ['name'] : ['logo_path', 'logo_url'];
+		result.data.action === 'profile'
+			? ['name']
+			: result.data.action === 'logo'
+				? ['logo_path', 'logo_url']
+				: [
+						'required_work_references_count',
+						'required_character_references_count',
+					];
 
 	await createUserAuditLog({
 		action: 'settings.updated',

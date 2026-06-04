@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { PERMISSIONS } from '@/lib/permissions';
 import {
 	personDetailsBaseSchema,
@@ -64,6 +65,9 @@ export async function PATCH(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	const now = new Date().toISOString();
 	const row = {

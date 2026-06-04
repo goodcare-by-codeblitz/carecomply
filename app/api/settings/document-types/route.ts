@@ -1,5 +1,6 @@
 import { PERMISSIONS } from '@/lib/permissions';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
@@ -93,6 +94,8 @@ export async function POST(request: Request) {
 
 	const auth = await requireSettingsManage(result.data.orgId);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const admin = createAdminClient();
 	const { data, error } = await admin
@@ -145,6 +148,8 @@ export async function PATCH(request: Request) {
 
 	const auth = await requireSettingsManage(result.data.orgId);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const admin = createAdminClient();
 	const { data: existing } = await admin
@@ -206,6 +211,8 @@ export async function DELETE(request: Request) {
 
 	const auth = await requireSettingsManage(result.data.orgId);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const admin = createAdminClient();
 	const { data: existing } = await admin

@@ -9,11 +9,16 @@ import {
 	enqueueReferenceRequestJob,
 	type ReferenceRequestResult,
 } from '@/lib/reference-requests';
+import {
+	buildReferenceReconciliation,
+	type ExistingReferenceLifecycle,
+} from '@/lib/reference-reconciliation';
 import { processReferenceJobBatch } from '@/lib/reference-worker';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 const referenceSchema = z.object({
+	id: z.string().uuid().optional(),
 	fullName: z.string().trim().min(2),
 	organization: z.string().trim().optional(),
 	email: z.string().trim().email(),
@@ -39,6 +44,25 @@ const requestSchema = z.object({
 	references: z.array(referenceSchema).min(1).max(10),
 });
 
+const REFERENCE_LIFECYCLE_SELECT_FIELDS = [
+	'id',
+	'email',
+	'status',
+	'reference_token',
+	'token_expires_at',
+	'request_sent_at',
+	'request_attempted_at',
+	'request_error',
+	'response_received_at',
+	'response_payload',
+	'response_url',
+	'reviewed_at',
+	'reviewed_by',
+	'review_notes',
+	'last_chased_at',
+	'chase_count',
+].join(', ');
+
 export async function POST(request: Request) {
 	let payload: z.infer<typeof requestSchema>;
 
@@ -57,48 +81,77 @@ export async function POST(request: Request) {
 		const context = await getCarerOnboardingContext(admin, payload.token);
 		const now = new Date().toISOString();
 
-		// Only delete the reference types being submitted, preserving the other type
 		const typesBeingUpdated = [
 			...new Set(payload.references.map((r) => r.referenceType)),
 		];
-		const { error: deleteError } = await admin
+
+		const { data: existingReferences, error: existingError } = await admin
 			.from('carer_references')
-			.delete()
+			.select(REFERENCE_LIFECYCLE_SELECT_FIELDS)
 			.eq('carer_id', context.carer.id)
 			.in('reference_type', typesBeingUpdated);
 
-		if (deleteError) {
-			throw deleteError;
+		if (existingError) {
+			throw existingError;
 		}
 
-		const { data, error } = await admin
-			.from('carer_references')
-			.insert(
-				payload.references.map((reference) => ({
-					carer_id: context.carer.id,
-					full_name: reference.fullName,
-					organization: reference.organization || null,
-					email: reference.email.toLowerCase(),
-					phone: reference.phone,
-					relationship: reference.relationship,
-					notes: reference.notes || null,
-					reference_type: reference.referenceType,
-					status: 'pending',
-					created_at: now,
-					updated_at: now,
-				})),
-			)
-			.select(REFERENCE_SELECT_FIELDS);
+		const operations = buildReferenceReconciliation({
+			carerId: context.carer.id,
+			submitted: payload.references,
+			existingById: new Map(
+				((existingReferences ?? []) as ExistingReferenceLifecycle[]).map(
+					(reference) => [reference.id, reference],
+				),
+			),
+			now,
+		});
+		const requestCandidates: {
+			referenceId: string;
+			reason: 'new' | 'email_changed';
+		}[] = [];
 
-		if (error) {
-			throw error;
+		for (const operation of operations) {
+			if (operation.kind === 'create') {
+				const { data: createdReference, error: createError } = await admin
+					.from('carer_references')
+					.insert(operation.values)
+					.select('id')
+					.single();
+
+				if (createError || !createdReference) {
+					throw createError ?? new Error('Reference could not be created.');
+				}
+
+				requestCandidates.push({
+					referenceId: createdReference.id,
+					reason: 'new',
+				});
+				continue;
+			}
+
+			const { error: updateError } = await admin
+				.from('carer_references')
+				.update(operation.values)
+				.eq('id', operation.referenceId)
+				.eq('carer_id', context.carer.id);
+
+			if (updateError) {
+				throw updateError;
+			}
+
+			if (operation.shouldRequest) {
+				requestCandidates.push({
+					referenceId: operation.referenceId,
+					reason: 'email_changed',
+				});
+			}
 		}
 
 		const requestResults = await Promise.all(
-			(data ?? []).map((reference) =>
+			requestCandidates.map((candidate) =>
 				enqueueReferenceRequestJob({
 					admin,
-					referenceId: reference.id,
+					referenceId: candidate.referenceId,
 					organizationId: context.carer.organization_id,
 					carerId: context.carer.id,
 				}),
@@ -113,8 +166,13 @@ export async function POST(request: Request) {
 		const requestedReferenceIds = requestResults
 			.filter((result) => result.ok)
 			.map((result) => result.referenceId);
+		const requestReasonByReferenceId = new Map(
+			requestCandidates.map((candidate) => [
+				candidate.referenceId,
+				candidate.reason,
+			]),
+		);
 
-		let returnedReferences = data ?? [];
 		const requestAttemptedAt = new Date().toISOString();
 		if (requestResults.length > 0) {
 			await Promise.all(
@@ -122,26 +180,30 @@ export async function POST(request: Request) {
 					updateReferenceRequestState(admin, requestResult, requestAttemptedAt),
 				),
 			);
-
-			const { data: refreshedReferences } = await admin
-				.from('carer_references')
-				.select(REFERENCE_SELECT_FIELDS)
-				.in(
-					'id',
-					requestResults.map((requestResult) => requestResult.referenceId),
-				);
-
-			if (refreshedReferences) {
-				const refreshedById = new Map(
-					refreshedReferences.map((reference) => [reference.id, reference]),
-				);
-				returnedReferences = returnedReferences.map(
-					(reference) => refreshedById.get(reference.id) ?? reference,
-				);
-			}
 		}
 
 		const failedRequests = requestResults.filter((result) => !result.ok);
+		const { data: returnedReferences, error: returnedReferencesError } =
+			await admin
+				.from('carer_references')
+				.select(REFERENCE_SELECT_FIELDS)
+				.eq('carer_id', context.carer.id)
+				.in('reference_type', typesBeingUpdated)
+				.order('created_at', { ascending: true });
+
+		if (returnedReferencesError) {
+			throw returnedReferencesError;
+		}
+		const updatedWithoutRequest = operations.filter(
+			(operation) => operation.kind === 'update' && !operation.shouldRequest,
+		).length;
+		const successfulNewRequests = requestedReferenceIds.filter(
+			(referenceId) => requestReasonByReferenceId.get(referenceId) === 'new',
+		).length;
+		const successfulEmailChangedRequests = requestedReferenceIds.filter(
+			(referenceId) =>
+				requestReasonByReferenceId.get(referenceId) === 'email_changed',
+		).length;
 
 		await admin
 			.from('carers')
@@ -163,13 +225,16 @@ export async function POST(request: Request) {
 				before: { phone: context.carer.phone },
 				after: {
 					phone: payload.carerPhone || null,
-					reference_count: returnedReferences.length,
+					reference_count: returnedReferences?.length ?? 0,
 				},
 				changed_fields: ['phone', 'references'],
 				reference_types_updated: typesBeingUpdated,
 				reference_relationships: payload.references.map((r) => r.relationship),
 				reference_request_handoff: {
 					requested: requestedReferenceIds.length,
+					updated_without_request: updatedWithoutRequest,
+					email_changed_requested: successfulEmailChangedRequests,
+					new_requested: successfulNewRequests,
 					failed: failedRequests.length,
 					configured: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
 				},
@@ -189,6 +254,8 @@ export async function POST(request: Request) {
 					details: {
 						carer_id: context.carer.id,
 						carer_email: context.carer.email,
+						request_reason:
+							requestReasonByReferenceId.get(referenceId) ?? 'unknown',
 						outcome: 'reference_request_queued',
 					},
 				}),
@@ -196,7 +263,7 @@ export async function POST(request: Request) {
 		);
 
 		return NextResponse.json({
-			references: returnedReferences,
+			references: returnedReferences ?? [],
 			carerPhone: payload.carerPhone || null,
 			referenceRequestWarning:
 				failedRequests.length > 0

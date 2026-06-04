@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { getBillingEntitlements } from '@/lib/billing';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -235,6 +236,8 @@ export async function POST(request: Request) {
 		PERMISSIONS.AUTOMATIONS_MANAGE,
 	);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const pro = await requirePro(result.data.orgId);
 	if (!pro.ok) return pro.response;
@@ -289,6 +292,8 @@ export async function PATCH(request: Request) {
 		PERMISSIONS.AUTOMATIONS_MANAGE,
 	);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const pro = await requirePro(result.data.orgId);
 	if (!pro.ok) return pro.response;
@@ -364,6 +369,8 @@ export async function DELETE(request: Request) {
 		PERMISSIONS.AUTOMATIONS_MANAGE,
 	);
 	if (!auth.ok) return auth.response;
+	const billing = await requireBillingCanModify(result.data.orgId);
+	if (!billing.ok) return billing.response;
 
 	const pro = await requirePro(result.data.orgId);
 	if (!pro.ok) return pro.response;

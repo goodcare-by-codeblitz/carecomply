@@ -91,7 +91,14 @@ export function SignUpForm({
 
   const handleExistingAccount = () => {
     const normalizedEmail = email.trim().toLowerCase();
-    const params = new URLSearchParams({ email: normalizedEmail, next: 'create-org' });
+    const params = new URLSearchParams({
+      email: normalizedEmail,
+      next: 'create-org',
+      orgName,
+      orgSlug: resolvedSlug,
+      plan,
+      interval,
+    });
     localStorage.setItem(
       PENDING_CREATE_ORG_KEY,
       JSON.stringify({ email: normalizedEmail, orgName, orgSlug: resolvedSlug, plan, interval }),

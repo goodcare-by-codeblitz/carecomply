@@ -5,16 +5,66 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
+const ratingScale = z.enum([
+	'excellent',
+	'good',
+	'satisfactory',
+	'needs_improvement',
+	'unable_to_comment',
+]);
+
+const competencyScale = z.enum(['yes', 'no', 'unable_to_comment']);
+
 const submitSchema = z.object({
 	token: z.string().min(32),
-	relationshipConfirmed: z.enum(['yes', 'no']),
-	workedWithApplicant: z.enum(['yes', 'no']),
-	wouldRecommend: z.enum(['yes', 'no', 'with_reservations']),
-	reliability: z.enum(['excellent', 'good', 'fair', 'poor', 'not_applicable']),
-	safeguardingConcerns: z.enum(['yes', 'no']),
-	comments: z.string().trim().max(4000).optional(),
+	// S1: Referee Verification
 	refereeName: z.string().trim().min(2),
-	refereeRole: z.string().trim().max(120).optional(),
+	refereeJobTitle: z.string().trim().min(2),
+	refereeOrganization: z.string().trim().min(2),
+	refereeWorkEmail: z.string().trim().email(),
+	refereeWorkPhone: z.string().trim().min(6),
+	relationshipToApplicant: z.enum([
+		'line_manager',
+		'supervisor',
+		'registered_manager',
+		'team_leader',
+		'colleague',
+		'other',
+	]),
+	howLongKnown: z.string().trim().min(1),
+	datesWorkedTogether: z.string().trim().min(1),
+	// S2: Employment Verification
+	confirmedEmployment: z.enum(['yes', 'no']),
+	jobTitleHeld: z.string().trim().optional(),
+	employmentStartDate: z.string().optional(),
+	currentlyEmployed: z.enum(['yes', 'no']).optional(),
+	employmentEndDate: z.string().optional(),
+	reasonForLeaving: z.string().trim().max(500).optional(),
+	employmentType: z.enum(['permanent', 'temporary', 'agency', 'bank_staff']).optional(),
+	// S3: Performance Ratings (all 10 skills)
+	ratings: z.record(z.string(), ratingScale),
+	// S4: Care Competency (all 6 questions)
+	competency: z.record(z.string(), competencyScale),
+	// S5: Safeguarding & Conduct
+	safeguardingConcerns: z.enum(['yes', 'no']),
+	disciplinaryActions: z.enum(['yes', 'no']),
+	conductConcerns: z.record(z.string(), z.boolean()).optional(),
+	conductDetails: z.string().trim().max(2000).optional(),
+	// S6: Rehire
+	wouldReemploy: z.enum(['yes', 'no', 'with_reservations']),
+	reemployReservations: z.string().trim().max(1000).optional(),
+	// S7: Overall Recommendation
+	overallRecommendation: z.enum([
+		'strongly_recommend',
+		'recommend',
+		'recommend_with_reservations',
+		'do_not_recommend',
+	]),
+	// S8: Additional Comments
+	additionalComments: z.string().trim().max(4000).optional(),
+	// S9: Declaration
+	declarationAgreed: z.literal(true),
+	signatureName: z.string().trim().min(2),
 });
 
 type ReferenceForSubmit = {
@@ -48,7 +98,7 @@ export async function POST(request: Request) {
 	const payload = submitSchema.safeParse(await request.json().catch(() => null));
 	if (!payload.success) {
 		return NextResponse.json(
-			{ error: 'Please complete the reference form.' },
+			{ error: payload.error.issues[0]?.message ?? 'Please complete all required fields.' },
 			{ status: 400 },
 		);
 	}
@@ -56,7 +106,9 @@ export async function POST(request: Request) {
 	const admin = createAdminClient();
 	const { data: referenceData, error: referenceError } = await admin
 		.from('carer_references')
-		.select('id, carer_id, full_name, email, status, token_expires_at, carers!inner(id, full_name, email, organization_id)')
+		.select(
+			'id, carer_id, full_name, email, status, token_expires_at, carers!inner(id, full_name, email, organization_id)',
+		)
 		.eq('reference_token', payload.data.token)
 		.maybeSingle();
 
@@ -67,7 +119,10 @@ export async function POST(request: Request) {
 	const reference = referenceData as ReferenceForSubmit;
 	const carer = normalizeRelation(reference.carers);
 	if (!carer) {
-		return NextResponse.json({ error: 'Reference is not linked to a carer.' }, { status: 404 });
+		return NextResponse.json(
+			{ error: 'Reference is not linked to a carer.' },
+			{ status: 404 },
+		);
 	}
 
 	if (reference.token_expires_at && new Date(reference.token_expires_at) < new Date()) {
@@ -75,19 +130,18 @@ export async function POST(request: Request) {
 	}
 
 	if (['responded', 'approved', 'rejected'].includes(reference.status)) {
-		return NextResponse.json({ error: 'This reference has already been submitted.' }, { status: 409 });
+		return NextResponse.json(
+			{ error: 'This reference has already been submitted.' },
+			{ status: 409 },
+		);
 	}
 
+	const { token, ...formData } = payload.data;
 	const now = new Date().toISOString();
+
 	const responsePayload = {
-		relationship_confirmed: payload.data.relationshipConfirmed,
-		worked_with_applicant: payload.data.workedWithApplicant,
-		would_recommend: payload.data.wouldRecommend,
-		reliability: payload.data.reliability,
-		safeguarding_concerns: payload.data.safeguardingConcerns,
-		comments: payload.data.comments ?? null,
-		referee_name: payload.data.refereeName,
-		referee_role: payload.data.refereeRole ?? null,
+		...formData,
+		date_submitted: now,
 	};
 
 	const { data: updatedReference, error: updateError } = await admin
@@ -96,7 +150,7 @@ export async function POST(request: Request) {
 			status: 'responded',
 			response_received_at: now,
 			response_payload: responsePayload,
-			response_url: new URL(request.url).origin + `/reference/${payload.data.token}`,
+			response_url: new URL(request.url).origin + `/reference/${token}`,
 			reference_token: null,
 			token_expires_at: null,
 			updated_at: now,
@@ -130,7 +184,7 @@ export async function POST(request: Request) {
 				response_url: updatedReference.response_url,
 			},
 			changed_fields: ['status', 'response_received_at', 'response_payload', 'response_url'],
-			outcome: 'reference_response_received_from_next_form',
+			outcome: 'reference_response_received',
 		},
 		request,
 	});
@@ -141,8 +195,8 @@ export async function POST(request: Request) {
 		organizationId: carer.organization_id,
 		carerId: carer.id,
 	});
-	await processReferenceJobBatch(admin, 10).catch((error) => {
-		console.error('[reference-submit] manager notification failed', error);
+	await processReferenceJobBatch(admin, 10).catch((err) => {
+		console.error('[reference-submit] manager notification failed', err);
 	});
 
 	return NextResponse.json({ ok: true, reference: updatedReference });

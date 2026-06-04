@@ -5,6 +5,8 @@ import {
 	carerCommunicationBlockedMessage,
 } from '@/lib/carer-communications';
 import { getInvitationLink } from '@/lib/invitations';
+import { CarerInvitation, TeamInvitation } from '@/emails';
+import { renderEmailTemplate } from '@/emails/render';
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
@@ -21,13 +23,25 @@ type InvitationForEmail = {
 	invite_type: 'team_member' | 'carer';
 	expires_at: string | null;
 	carer_id: string | null;
-	carers: { status: string | null } | { status: string | null }[] | null;
+	carers: { status: string | null; full_name: string | null } | { status: string | null; full_name: string | null }[] | null;
 	organizations: { name: string } | { name: string }[] | null;
 	roles: { name: string } | { name: string }[] | null;
 };
 
 function normalizeRelation<T>(value: T | T[] | null | undefined) {
 	return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function formatExpiryTime(expiresAt: string | null): string {
+	if (!expiresAt) return 'soon';
+	const date = new Date(expiresAt);
+	const days = Math.ceil((date.getTime() - Date.now()) / 86400000);
+	const label = new Intl.DateTimeFormat('en-GB', {
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric',
+	}).format(date);
+	return days > 0 ? `in ${days} day${days === 1 ? '' : 's'} (${label})` : label;
 }
 
 export async function POST(request: NextRequest) {
@@ -55,7 +69,7 @@ export async function POST(request: NextRequest) {
 		const { data: invitation, error: inviteError } = await supabase
 			.from('organization_invitations')
 			.select(
-				'id, organization_id, email, invite_type, expires_at, carer_id, carers(status), organizations(name), roles(name)',
+				'id, organization_id, email, invite_type, expires_at, carer_id, carers(status, full_name), organizations(name), roles(name)',
 			)
 			.eq('token', token)
 			.eq('email', normalizedEmail)
@@ -120,70 +134,57 @@ export async function POST(request: NextRequest) {
 			);
 		}
 
+		// Fetch inviter name from profiles
+		const { data: inviterProfile } = await supabase
+			.from('profiles')
+			.select('full_name')
+			.eq('id', user.id)
+			.maybeSingle();
+		const inviterName = inviterProfile?.full_name ?? orgName;
+
+		const expiryTime = formatExpiryTime(invite.expires_at);
+
+		let html: string;
+
+		if (isCarerInvite) {
+			// Fetch required documents for the organisation
+			const { data: docTypes } = await supabase
+				.from('document_types')
+				.select('name')
+				.eq('organization_id', invite.organization_id)
+				.eq('is_required', true);
+			const requiredDocuments = (docTypes ?? []).map((d) => d.name);
+
+			html = await renderEmailTemplate(CarerInvitation, {
+				carerName: carer?.full_name ?? normalizedEmail,
+				organizationName: orgName,
+				inviterName,
+				inviteUrl,
+				requiredDocuments,
+				supportEmail: fromEmail,
+				expiryTime,
+			});
+		} else {
+			html = await renderEmailTemplate(TeamInvitation, {
+				organizationName: orgName,
+				inviterName,
+				roleName: resolvedRoleName,
+				inviteUrl,
+				supportEmail: fromEmail,
+				expiryTime,
+			});
+		}
+
 		const resend = new Resend(apiKey);
 		const subject = isCarerInvite
 			? `Complete your onboarding for ${orgName}`
 			: `You've been invited to join ${orgName} on CareComply`;
 
-		const intro = isCarerInvite
-			? `You've been invited to complete onboarding for <strong>${orgName}</strong> on CareComply.`
-			: `You've been invited to join <strong>${orgName}</strong> on CareComply as a <strong>${resolvedRoleName}</strong>.`;
-
-		const actionCopy = isCarerInvite
-			? 'Complete Onboarding'
-			: 'Accept Invitation';
-		const expiryCopy = invite.expires_at
-			? `This invitation expires on ${new Intl.DateTimeFormat('en-GB', {
-					day: 'numeric',
-					month: 'short',
-					year: 'numeric',
-				}).format(new Date(invite.expires_at))}.`
-			: 'This invitation will expire soon.';
-
 		const { data: emailData, error: emailError } = await resend.emails.send({
 			from: `${orgName} <${fromEmail}>`,
 			to: normalizedEmail,
 			subject,
-			html: `
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          </head>
-          <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #1a1a2e; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <div style="text-align: center; margin-bottom: 32px;">
-              <h1 style="font-size: 24px; font-weight: 600; margin: 0;">CareComply</h1>
-            </div>
-            
-            <div style="background: #f8f9fa; border-radius: 12px; padding: 32px; margin-bottom: 24px;">
-              <h2 style="font-size: 20px; font-weight: 600; margin: 0 0 16px 0;">You've been invited!</h2>
-              <p style="margin: 0 0 16px 0; color: #666;">
-                ${intro}
-              </p>
-              <p style="margin: 0 0 24px 0; color: #666;">
-                Click the button below to continue.
-              </p>
-              <a href="${inviteUrl}" style="display: inline-block; background: #1a1a2e; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-weight: 500;">
-                ${actionCopy}
-              </a>
-            </div>
-            
-            <p style="font-size: 14px; color: #666; margin: 0 0 8px 0;">
-              ${expiryCopy}
-            </p>
-            <p style="font-size: 14px; color: #666; margin: 0;">
-              If you didn't expect this invitation, you can safely ignore this email.
-            </p>
-            
-            <hr style="border: none; border-top: 1px solid #eee; margin: 32px 0;">
-            
-            <p style="font-size: 12px; color: #999; margin: 0;">
-              CareComply - Automated Compliance Management
-            </p>
-          </body>
-          </html>
-        `,
+			html,
 		});
 
 		if (emailError) {

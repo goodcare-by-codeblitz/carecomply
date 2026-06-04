@@ -7,6 +7,8 @@ import {
 	type BillingStatus,
 } from '@/lib/billing';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { captureBillingException } from '@/lib/billing-monitoring';
+import { billingStripeErrorResponse } from '@/lib/billing-stripe-errors';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -67,10 +69,28 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const stripe = getStripe();
-	const session = await stripe.checkout.sessions.retrieve(payload.sessionId, {
-		expand: ['subscription'],
-	});
+	let session: Stripe.Checkout.Session;
+	let subscription: Stripe.Subscription | null;
+	try {
+		const stripe = getStripe();
+		session = await stripe.checkout.sessions.retrieve(payload.sessionId, {
+			expand: ['subscription'],
+		});
+		subscription =
+			typeof session.subscription === 'string'
+				? await stripe.subscriptions.retrieve(session.subscription)
+				: session.subscription;
+	} catch (error) {
+		captureBillingException(error, {
+			operation: 'checkout_sync_stripe_retrieve',
+			organizationId: organization.id,
+			extra: { stripe_checkout_session_id: payload.sessionId },
+		});
+		return billingStripeErrorResponse(error, {
+			code: 'stripe_checkout_sync_failed',
+			message: 'Checkout completed, but billing could not be synced.',
+		});
+	}
 
 	if (session.metadata?.organization_id !== organization.id) {
 		return NextResponse.json(
@@ -78,11 +98,6 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
-
-	const subscription =
-		typeof session.subscription === 'string'
-			? await stripe.subscriptions.retrieve(session.subscription)
-			: session.subscription;
 
 	if (!subscription) {
 		return NextResponse.json(
@@ -123,6 +138,12 @@ export async function POST(request: Request) {
 			current_period_end: fromStripeTimestamp(sub.current_period_end),
 			trial_start: fromStripeTimestamp(sub.trial_start),
 			trial_end: fromStripeTimestamp(subscription.trial_end),
+			grace_period_ends_at: null,
+			pending_checkout_session_id: null,
+			pending_checkout_url: null,
+			pending_checkout_plan: null,
+			pending_checkout_interval: null,
+			pending_checkout_expires_at: null,
 			cancel_at_period_end: subscription.cancel_at_period_end,
 		},
 		{ onConflict: 'organization_id' },

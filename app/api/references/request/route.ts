@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import {
 	canReceiveReferenceCommunication,
 	referenceCommunicationBlockedMessage,
@@ -110,6 +111,9 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	if (!canReceiveReferenceCommunication(carer.status)) {
 		const requestedAt = new Date().toISOString();

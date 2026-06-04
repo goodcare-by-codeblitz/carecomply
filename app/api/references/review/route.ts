@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { updateCarerOnboardingProgress } from '@/lib/onboarding';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
@@ -98,6 +99,9 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	if (reference.status !== 'responded') {
 		return NextResponse.json(

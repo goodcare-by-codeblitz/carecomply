@@ -132,6 +132,46 @@ export async function POST(request: Request) {
 					{ status: 409 },
 				);
 			}
+		} else {
+			const { data: matchingProfiles, error: profilesError } = await admin
+				.from('profiles')
+				.select('id')
+				.ilike('email', invitation.email.trim().toLowerCase())
+				.is('deleted_at', null);
+
+			if (profilesError) {
+				return NextResponse.json(
+					{ error: 'Existing team members could not be checked.' },
+					{ status: 500 },
+				);
+			}
+
+			const profileIds = (matchingProfiles ?? []).map((profile) => profile.id);
+			if (profileIds.length > 0) {
+				const { count, error: membershipError } = await admin
+					.from('organization_memberships')
+					.select('id', { count: 'exact', head: true })
+					.eq('organization_id', invitation.organization_id)
+					.in('user_id', profileIds)
+					.is('deleted_at', null);
+
+				if (membershipError) {
+					return NextResponse.json(
+						{ error: 'Existing team members could not be checked.' },
+						{ status: 500 },
+					);
+				}
+
+				if ((count ?? 0) > 0) {
+					return NextResponse.json(
+						{
+							error:
+								'This person is already a team member. Restore or update their existing membership instead.',
+						},
+						{ status: 409 },
+					);
+				}
+			}
 		}
 
 		const now = new Date().toISOString();

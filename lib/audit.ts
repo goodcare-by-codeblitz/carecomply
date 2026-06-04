@@ -12,6 +12,7 @@ export type AuditCategory =
 	| 'onboarding'
 	| 'settings'
 	| 'staffing'
+	| 'training'
 	| 'system';
 
 export type AuditSeverity = 'info' | 'warning' | 'critical';
@@ -66,6 +67,12 @@ export type AuditAction =
 	| 'team.member_suspended'
 	| 'team.member_updated'
 	| 'team.role_changed'
+	| 'training.completed'
+	| 'training.expired'
+	| 'training.updated'
+	| 'training_requirement.created'
+	| 'training_requirement.deleted'
+	| 'training_requirement.updated'
 	| 'user.login_attempted'
 	| 'user.login_failed'
 	| 'user.login'
@@ -83,6 +90,8 @@ export type EntityType =
 	| 'reference'
 	| 'reminder'
 	| 'team_member'
+	| 'training_record'
+	| 'training_requirement'
 	| 'user';
 
 export type AuditLogParams = {
@@ -103,6 +112,11 @@ type AuditDefaults = {
 	category: AuditCategory;
 	severity: AuditSeverity;
 	cqcKeyQuestion: CqcKeyQuestion;
+};
+
+type AuditDefaultContext = {
+	details?: Record<string, unknown>;
+	source?: AuditLogParams['source'] | string;
 };
 
 const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
@@ -176,6 +190,16 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 		severity: 'warning',
 		cqcKeyQuestion: 'safe',
 	},
+	'carer.created': {
+		category: 'staffing',
+		severity: 'info',
+		cqcKeyQuestion: 'caring',
+	},
+	'carer.updated': {
+		category: 'staffing',
+		severity: 'info',
+		cqcKeyQuestion: 'caring',
+	},
 	'document.approved': {
 		category: 'documents',
 		severity: 'info',
@@ -184,7 +208,7 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	'document.rejected': {
 		category: 'documents',
 		severity: 'warning',
-		cqcKeyQuestion: 'safe',
+		cqcKeyQuestion: 'responsive',
 	},
 	'document.uploaded': {
 		category: 'documents',
@@ -194,17 +218,17 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	'document_type.created': {
 		category: 'governance',
 		severity: 'info',
-		cqcKeyQuestion: 'well_led',
+		cqcKeyQuestion: 'effective',
 	},
 	'document_type.deleted': {
 		category: 'governance',
 		severity: 'warning',
-		cqcKeyQuestion: 'well_led',
+		cqcKeyQuestion: 'effective',
 	},
 	'document_type.updated': {
 		category: 'governance',
 		severity: 'info',
-		cqcKeyQuestion: 'well_led',
+		cqcKeyQuestion: 'effective',
 	},
 	'invitation.accepted': {
 		category: 'staffing',
@@ -214,7 +238,7 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	'invitation.reinvited': {
 		category: 'staffing',
 		severity: 'info',
-		cqcKeyQuestion: 'well_led',
+		cqcKeyQuestion: 'responsive',
 	},
 	'invitation.revoked': {
 		category: 'staffing',
@@ -224,27 +248,47 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	'onboarding.references_updated': {
 		category: 'onboarding',
 		severity: 'info',
-		cqcKeyQuestion: 'safe',
+		cqcKeyQuestion: 'responsive',
 	},
 	'reference.approved': {
 		category: 'onboarding',
 		severity: 'info',
-		cqcKeyQuestion: 'safe',
+		cqcKeyQuestion: 'effective',
 	},
 	'reference.rejected': {
 		category: 'onboarding',
 		severity: 'warning',
-		cqcKeyQuestion: 'safe',
+		cqcKeyQuestion: 'effective',
 	},
 	'reference.requested': {
 		category: 'onboarding',
 		severity: 'info',
-		cqcKeyQuestion: 'safe',
+		cqcKeyQuestion: 'responsive',
 	},
 	'reference.responded': {
 		category: 'onboarding',
 		severity: 'info',
-		cqcKeyQuestion: 'safe',
+		cqcKeyQuestion: 'responsive',
+	},
+	'reminder.created': {
+		category: 'settings',
+		severity: 'info',
+		cqcKeyQuestion: 'responsive',
+	},
+	'reminder.deleted': {
+		category: 'settings',
+		severity: 'warning',
+		cqcKeyQuestion: 'responsive',
+	},
+	'reminder.toggled': {
+		category: 'settings',
+		severity: 'info',
+		cqcKeyQuestion: 'responsive',
+	},
+	'reminder.updated': {
+		category: 'settings',
+		severity: 'info',
+		cqcKeyQuestion: 'responsive',
 	},
 	'team.invited': {
 		category: 'staffing',
@@ -291,6 +335,36 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 		severity: 'info',
 		cqcKeyQuestion: 'well_led',
 	},
+	'training.completed': {
+		category: 'training',
+		severity: 'info',
+		cqcKeyQuestion: 'effective',
+	},
+	'training.expired': {
+		category: 'training',
+		severity: 'warning',
+		cqcKeyQuestion: 'effective',
+	},
+	'training.updated': {
+		category: 'training',
+		severity: 'info',
+		cqcKeyQuestion: 'effective',
+	},
+	'training_requirement.created': {
+		category: 'governance',
+		severity: 'info',
+		cqcKeyQuestion: 'effective',
+	},
+	'training_requirement.deleted': {
+		category: 'governance',
+		severity: 'warning',
+		cqcKeyQuestion: 'effective',
+	},
+	'training_requirement.updated': {
+		category: 'governance',
+		severity: 'info',
+		cqcKeyQuestion: 'effective',
+	},
 	'user.login_attempted': {
 		category: 'system',
 		severity: 'info',
@@ -313,21 +387,72 @@ const ACTION_DEFAULTS: Partial<Record<AuditAction, AuditDefaults>> = {
 	},
 };
 
-export function getAuditDefaults(action: AuditAction): AuditDefaults {
-	if (ACTION_DEFAULTS[action]) return ACTION_DEFAULTS[action];
+export function getAuditDefaults(
+	action: AuditAction,
+	context: AuditDefaultContext = {},
+): AuditDefaults {
+	const contextDefault = getContextualAuditDefaults(action, context.details);
+	if (contextDefault) return contextDefault;
+	if (ACTION_DEFAULTS[action]) {
+		return applySourceDefaults(action, ACTION_DEFAULTS[action], context.source);
+	}
 	if (action.startsWith('document.')) {
-		return { category: 'documents', severity: 'info', cqcKeyQuestion: 'safe' };
+		return applySourceDefaults(
+			action,
+			{ category: 'documents', severity: 'info', cqcKeyQuestion: 'safe' },
+			context.source,
+		);
 	}
 	if (action.startsWith('billing.')) {
 		return { category: 'billing', severity: 'info', cqcKeyQuestion: 'well_led' };
 	}
 	if (action.startsWith('carer.') || action.startsWith('team.')) {
-		return { category: 'staffing', severity: 'info', cqcKeyQuestion: 'safe' };
+		return applySourceDefaults(
+			action,
+			{ category: 'staffing', severity: 'info', cqcKeyQuestion: 'safe' },
+			context.source,
+		);
 	}
 	if (action.startsWith('settings.') || action.startsWith('reminder.')) {
 		return { category: 'settings', severity: 'info', cqcKeyQuestion: 'well_led' };
 	}
 	return { category: 'system', severity: 'info', cqcKeyQuestion: 'well_led' };
+}
+
+function applySourceDefaults(
+	action: AuditAction,
+	defaults: AuditDefaults,
+	source?: AuditDefaultContext['source'],
+): AuditDefaults {
+	if (
+		source === 'onboarding' &&
+		(action === 'carer.updated' ||
+			action === 'document.uploaded' ||
+			action === 'reference.requested' ||
+			action === 'onboarding.references_updated')
+	) {
+		return { ...defaults, category: 'onboarding' };
+	}
+
+	return defaults;
+}
+
+function getContextualAuditDefaults(
+	action: AuditAction,
+	details?: Record<string, unknown>,
+): AuditDefaults | null {
+	if (
+		action === 'settings.updated' &&
+		details?.setting_area === 'reference_requirements'
+	) {
+		return {
+			category: 'settings',
+			severity: 'info',
+			cqcKeyQuestion: 'effective',
+		};
+	}
+
+	return null;
 }
 
 export async function logAction(params: AuditLogParams) {

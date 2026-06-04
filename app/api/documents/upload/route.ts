@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import {
 	CARER_DOCUMENTS_BUCKET,
 	updateCarerOnboardingProgress,
@@ -106,6 +107,9 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	const { data: documentType, error: documentTypeError } = await admin
 		.from('document_types')

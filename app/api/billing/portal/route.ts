@@ -1,5 +1,7 @@
 import { PERMISSIONS } from '@/lib/permissions';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { captureBillingException } from '@/lib/billing-monitoring';
+import { billingStripeErrorResponse } from '@/lib/billing-stripe-errors';
 import { createClient } from '@/lib/supabase/server';
 import { getStripe } from '@/lib/stripe';
 import { NextResponse } from 'next/server';
@@ -72,14 +74,39 @@ export async function POST(request: Request) {
 		);
 	}
 
+	const portalConfigId = process.env.STRIPE_BILLING_PORTAL_CONFIGURATION_ID;
+	if (!portalConfigId) {
+		return NextResponse.json(
+			{
+				ok: false,
+				code: 'stripe_not_configured',
+				message:
+					'Billing portal is not configured. Set STRIPE_BILLING_PORTAL_CONFIGURATION_ID.',
+			},
+			{ status: 501 },
+		);
+	}
+
 	const origin = new URL(request.url).origin;
-	const stripe = getStripe();
-	const session = await stripe.billingPortal.sessions.create({
-		customer: billing.stripe_customer_id,
-		configuration:
-			process.env.STRIPE_BILLING_PORTAL_CONFIGURATION_ID || undefined,
-		return_url: `${origin}/${organization.slug}/settings/billing`,
-	});
+	let session;
+	try {
+		const stripe = getStripe();
+		session = await stripe.billingPortal.sessions.create({
+			customer: billing.stripe_customer_id,
+			configuration: portalConfigId,
+			return_url: `${origin}/${organization.slug}/settings/billing`,
+		});
+	} catch (error) {
+		captureBillingException(error, {
+			operation: 'billing_portal_session_create',
+			organizationId: organization.id,
+			extra: { stripe_customer_id: billing.stripe_customer_id },
+		});
+		return billingStripeErrorResponse(error, {
+			code: 'stripe_portal_session_failed',
+			message: 'Billing portal could not be opened.',
+		});
+	}
 
 	await createUserAuditLog({
 		action: 'billing.portal_opened',

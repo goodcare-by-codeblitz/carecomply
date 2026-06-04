@@ -83,12 +83,33 @@ type ApiReference = {
   reference_type: string;
 };
 
+type TrainingRequirement = {
+  id: string;
+  name: string;
+  description: string | null;
+  is_required: boolean;
+  is_active: boolean;
+  validity_months: number | null;
+};
+
+type TrainingRecord = {
+  id: string;
+  training_requirement_id: string;
+  status: 'pending' | 'completed' | 'expired';
+  observed_at: string | null;
+  observed_notes: string | null;
+  expiry_date: string | null;
+  updated_at: string | null;
+};
+
 type OnboardingPayload = {
   organization: Organization;
   carer: Carer;
   documentTypes: DocumentType[];
   documents: UploadedDoc[];
   references: ApiReference[];
+  trainingRequirements: TrainingRequirement[];
+  trainingRecords: TrainingRecord[];
 };
 
 const emptyReference = (referenceType: 'work' | 'character'): ReferenceRow => ({
@@ -123,6 +144,25 @@ function isDocumentUnexpired(document: Pick<UploadedDoc, 'expiry_date'>) {
   return expiryDate >= today;
 }
 
+function isDateUnexpired(value: string | null) {
+  if (!value) return true;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  return date >= today;
+}
+
+function isDateExpiringSoon(value: string | null) {
+  if (!value || !isDateUnexpired(value)) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const date = new Date(value);
+  date.setHours(0, 0, 0, 0);
+  const days = Math.ceil((date.getTime() - today.getTime()) / 86400000);
+  return days <= 30;
+}
+
 // Shared input class
 const inputCls = 'w-full h-10 rounded-lg border border-line-strong bg-white px-3 text-[14px] text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand transition';
 const textareaCls = 'w-full rounded-lg border border-line-strong bg-white px-3 py-2 text-[14px] text-ink placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand/20 focus:border-brand transition resize-none';
@@ -146,6 +186,8 @@ export function OnboardingClient() {
   const [organization, setOrganization] = useState<Organization>(null);
   const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([]);
+  const [trainingRequirements, setTrainingRequirements] = useState<TrainingRequirement[]>([]);
+  const [trainingRecords, setTrainingRecords] = useState<TrainingRecord[]>([]);
   const [workReferences, setWorkReferences] = useState<ReferenceRow[]>([]);
   const [characterReferences, setCharacterReferences] = useState<ReferenceRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -159,6 +201,7 @@ export function OnboardingClient() {
   const [isSavingWorkRefs, setIsSavingWorkRefs] = useState(false);
   const [isSavingCharRefs, setIsSavingCharRefs] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileEmail, setProfileEmail] = useState('');
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -183,6 +226,7 @@ export function OnboardingClient() {
 
       setCarer(data.carer);
       setCarerPhone(data.carer.phone ?? '');
+      setProfileEmail(data.carer.email ?? '');
       setProfileForm({
         phone: data.carer.phone ?? '',
         addressLine1: data.carer.address_line1 ?? '',
@@ -198,6 +242,8 @@ export function OnboardingClient() {
       setOrganization(data.organization);
       setDocumentTypes(data.documentTypes);
       setUploadedDocs(data.documents);
+      setTrainingRequirements(data.trainingRequirements ?? []);
+      setTrainingRecords(data.trainingRecords ?? []);
       setWorkReferences(
         Array.from({ length: reqWork }, (_, i) =>
           savedWork[i] ? mapApiRef(savedWork[i], 'work') : emptyReference('work'),
@@ -243,6 +289,27 @@ export function OnboardingClient() {
   const rejectedDocs = uploadedDocs.filter((doc) => doc.status === 'rejected');
   const requiredTypes = documentTypes.filter((type) => type.is_required);
   const uploadedRequiredCount = requiredTypes.filter((type) => isDocTypeCompliant(type.id)).length;
+  const trainingRecordByRequirement = trainingRecords.reduce<Record<string, TrainingRecord>>(
+    (records, record) => {
+      records[record.training_requirement_id] = record;
+      return records;
+    },
+    {},
+  );
+  const requiredTraining = trainingRequirements.filter((item) => item.is_required && item.is_active);
+  const isTrainingComplete = (id: string) => {
+    const record = trainingRecordByRequirement[id];
+    return record?.status === 'completed' && isDateUnexpired(record.expiry_date);
+  };
+  const completedTrainingCount = requiredTraining.filter((item) => isTrainingComplete(item.id)).length;
+  const expiredTraining = trainingRequirements.filter((item) => {
+    const record = trainingRecordByRequirement[item.id];
+    return record?.status === 'completed' && !isDateUnexpired(record.expiry_date);
+  });
+  const expiringTraining = trainingRequirements.filter((item) => {
+    const record = trainingRecordByRequirement[item.id];
+    return record?.status === 'completed' && isDateExpiringSoon(record.expiry_date);
+  });
 
   const reqWork = organization?.required_work_references_count ?? 0;
   const reqChar = organization?.required_character_references_count ?? 0;
@@ -251,8 +318,8 @@ export function OnboardingClient() {
   const workComplete = reqWork > 0 && workSaved >= reqWork;
   const charComplete = reqChar > 0 && charSaved >= reqChar;
 
-  const totalRequired = requiredTypes.length + (reqWork > 0 ? 1 : 0) + (reqChar > 0 ? 1 : 0);
-  const completedCount = uploadedRequiredCount + (workComplete ? 1 : 0) + (charComplete ? 1 : 0);
+  const totalRequired = requiredTypes.length + (reqWork > 0 ? 1 : 0) + (reqChar > 0 ? 1 : 0) + requiredTraining.length;
+  const completedCount = uploadedRequiredCount + (workComplete ? 1 : 0) + (charComplete ? 1 : 0) + completedTrainingCount;
   const progress = totalRequired > 0 ? Math.round((completedCount / totalRequired) * 100) : 100;
   const hasAllRequiredDocuments = progress === 100;
 
@@ -329,8 +396,8 @@ export function OnboardingClient() {
         body: JSON.stringify({
           token,
           carerPhone,
-          references: refs.map(({ fullName, organization: org, email, phone, relationship, notes, referenceType }) => ({
-            fullName, organization: org, email, phone, relationship, notes, referenceType,
+          references: refs.map(({ id, fullName, organization: org, email, phone, relationship, notes, referenceType }) => ({
+            id, fullName, organization: org, email, phone, relationship, notes, referenceType,
           })),
         }),
       });
@@ -366,7 +433,7 @@ export function OnboardingClient() {
       const response = await fetch('/api/onboarding/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, ...profileForm }),
+        body: JSON.stringify({ token, ...profileForm, email: profileEmail }),
       });
       const payload = (await response.json()) as { carer?: Partial<Carer>; error?: string };
       if (!response.ok || !payload.carer) throw new Error(payload.error || 'Profile details could not be saved.');
@@ -416,7 +483,7 @@ export function OnboardingClient() {
 
       <main className="max-w-5xl mx-auto px-6 py-10 space-y-8">
         {/* Welcome + details card */}
-        <section className="grid gap-6 lg:grid-cols-[1fr_320px] lg:items-start">
+        <section className="space-y-6">
           <div>
             <h1 className="text-[28px] font-semibold tracking-ultratight text-ink mb-2">
               Welcome, {carer?.full_name}.
@@ -425,26 +492,38 @@ export function OnboardingClient() {
               Upload your required compliance documents and keep your reference details up to date while this onboarding link is active.
             </p>
           </div>
-          <div className="rounded-2xl border border-line bg-white p-6">
-            <div className="text-[13px] font-semibold text-ink mb-4">Your details</div>
-            <div className="space-y-3 text-[13.5px] mb-5">
+
+          <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-card">
+            {/* Card header — identity strip */}
+            <div className="flex items-center justify-between gap-4 border-b border-line bg-surface-page px-6 py-4">
               <div>
-                <div className="text-[12px] text-slate-500 mb-0.5">Name</div>
-                <div className="font-medium text-ink">{carer?.full_name}</div>
+                <p className="text-[14px] font-semibold text-ink">Your details</p>
+                <p className="mt-0.5 text-[12.5px] text-slate-500">Keep your contact and emergency information up to date.</p>
               </div>
-              <div>
-                <div className="text-[12px] text-slate-500 mb-0.5">Email</div>
-                <div className="font-medium text-ink">{carer?.email}</div>
+              <div className="flex shrink-0 items-center gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-50 text-[11px] font-bold text-brand-700">
+                  {carer?.full_name?.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                </div>
+                <div className="hidden sm:block">
+                  <p className="text-[13.5px] font-medium leading-tight text-ink">{carer?.full_name}</p>
+                  <p className="text-[12px] text-slate-500">{carer?.email}</p>
+                </div>
               </div>
             </div>
-            <PersonDetailsForm form={profileForm} onChange={updateProfileField} />
-            <button
-              type="button"
-              disabled={isSavingProfile}
-              onClick={saveProfile}
-              className="mt-4 w-full h-10 rounded-lg bg-brand text-white text-[13.5px] font-medium hover:bg-brand-700 transition disabled:opacity-60">
-              {isSavingProfile ? 'Saving…' : 'Save details'}
-            </button>
+
+            {/* Form body */}
+            <div className="p-6">
+              <PersonDetailsForm form={profileForm} onChange={updateProfileField} email={profileEmail} onEmailChange={setProfileEmail} />
+              <div className="mt-6 flex justify-end border-t border-line pt-5">
+                <button
+                  type="button"
+                  disabled={isSavingProfile}
+                  onClick={saveProfile}
+                  className="h-9 rounded-lg bg-brand px-5 text-[13.5px] font-medium text-white transition hover:bg-brand-700 disabled:opacity-60">
+                  {isSavingProfile ? 'Saving…' : 'Save details'}
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -476,6 +555,28 @@ export function OnboardingClient() {
                       <p className="text-[13px] font-medium text-red-800">{docType?.name ?? 'Document'}</p>
                       <p className="text-[12.5px] text-red-700 mt-0.5">{doc.rejection_reason || 'Please upload a new copy.'}</p>
                     </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(expiredTraining.length > 0 || expiringTraining.length > 0) && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex gap-3">
+              <Clock size={18} className="text-amber-600 shrink-0 mt-0.5" style={{ width: 18, height: 18 }} />
+              <div className="space-y-2">
+                <p className="text-[14px] font-semibold text-amber-800">Training attention needed</p>
+                <p className="text-[13px] text-amber-700">
+                  Some onsite training is expired or expiring soon. Your manager or training officer will update this after refresher training.
+                </p>
+                {[...expiredTraining, ...expiringTraining].map((training) => {
+                  const record = trainingRecordByRequirement[training.id];
+                  return (
+                    <p key={training.id} className="text-[12.5px] text-amber-800">
+                      {training.name}: {record?.expiry_date ? `expires ${new Date(record.expiry_date).toLocaleDateString()}` : 'expiry date not set'}
+                    </p>
                   );
                 })}
               </div>
@@ -575,6 +676,36 @@ export function OnboardingClient() {
                 </div>
               </div>
             )}
+
+            {requiredTraining.map((training) => {
+              const record = trainingRecordByRequirement[training.id];
+              const complete = isTrainingComplete(training.id);
+              const expired = record?.status === 'completed' && !isDateUnexpired(record.expiry_date);
+              const expiring = record?.status === 'completed' && isDateExpiringSoon(record.expiry_date);
+              return (
+                <div key={training.id} className={cn(
+                  'flex items-center gap-3 p-3 rounded-xl border transition-colors',
+                  expired ? 'bg-red-50 border-red-200' :
+                  complete ? 'bg-emerald-50 border-emerald-200' :
+                  'bg-white border-line hover:border-line-strong',
+                )}>
+                  {expired ? <AlertCircle size={16} className="text-red-600 shrink-0" style={{ width: 16, height: 16 }} /> :
+                   complete ? <CheckCircle2 size={16} className="text-emerald-600 shrink-0" style={{ width: 16, height: 16 }} /> :
+                   <div className="h-4 w-4 rounded-full border-2 border-line-strong shrink-0" />}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium text-ink">
+                      {training.name}<span className="text-red-600 ml-1">*</span>
+                    </p>
+                    <p className="text-[11.5px] text-slate-500 mt-0.5">
+                      {expired ? 'Expired - speak to your manager' :
+                       expiring ? `Completed - expires ${new Date(record!.expiry_date!).toLocaleDateString()}` :
+                       complete ? `Completed${record?.expiry_date ? ` - expires ${new Date(record.expiry_date).toLocaleDateString()}` : ''}` :
+                       'To be completed onsite by your manager or training officer'}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Right: upload form */}
@@ -702,6 +833,48 @@ export function OnboardingClient() {
             onUpdate={(index, field, value) => updateRef('character', index, field, value)}
             onSave={() => saveReferences('character', characterReferences)}
           />
+        )}
+
+        {trainingRequirements.length > 0 && (
+          <div className="rounded-2xl border border-line bg-white p-6">
+            <div className="text-[16px] font-semibold text-ink mb-1">Onsite training</div>
+            <div className="text-[13.5px] text-slate-500 mb-6">
+              These items are completed and updated by your manager or training officer.
+            </div>
+            <div className="space-y-3">
+              {trainingRequirements.map((training) => {
+                const record = trainingRecordByRequirement[training.id];
+                const complete = isTrainingComplete(training.id);
+                const expired = record?.status === 'completed' && !isDateUnexpired(record.expiry_date);
+                return (
+                  <div key={training.id} className="rounded-xl border border-line p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[13.5px] font-medium text-ink">
+                          {training.name}{training.is_required && <span className="ml-1 text-red-600">*</span>}
+                        </p>
+                        {training.description && (
+                          <p className="mt-1 text-[12.5px] text-slate-500">{training.description}</p>
+                        )}
+                      </div>
+                      <span className={cn(
+                        'inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-semibold',
+                        expired ? 'bg-danger-50 text-danger' :
+                        complete ? 'bg-ok-50 text-ok' :
+                        'bg-surface-muted text-slate-600',
+                      )}>
+                        {expired ? 'Expired' : complete ? 'Completed' : 'Not completed'}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[12px] text-slate-500">
+                      {record?.observed_at ? `Observed ${new Date(record.observed_at).toLocaleDateString()}` : 'Awaiting onsite observation'}
+                      {record?.expiry_date ? ` - expires ${new Date(record.expiry_date).toLocaleDateString()}` : ''}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </main>
     </div>

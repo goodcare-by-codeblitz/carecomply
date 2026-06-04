@@ -317,6 +317,28 @@ export default function BillingSettingsPage() {
 						<span>Confirming your payment with Stripe. This usually takes a few seconds...</span>
 					</div>
 				)}
+				{billing.billingAccess?.reason === 'past_due_grace' && (
+					<div className='rounded-xl border border-warn/30 bg-warn-50 px-4 py-3 text-[13px] text-slate-700'>
+						<p className='font-semibold text-ink'>Payment needs attention</p>
+						<p>
+							Your workspace remains fully available during the payment grace
+							period. Update billing before{' '}
+							{billing.billingAccess.gracePeriodEndsAt
+								? formatBillingDate(billing.billingAccess.gracePeriodEndsAt)
+								: 'the grace period ends'}{' '}
+							to avoid read-only mode.
+						</p>
+					</div>
+				)}
+				{billing.billingAccess?.isReadOnly && (
+					<div className='rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-[13px] text-slate-700'>
+						<p className='font-semibold text-ink'>Workspace is read-only</p>
+						<p>
+							Payment is past due and the grace period has ended. Update billing
+							to restore uploads, invites, automations, and record changes.
+						</p>
+					</div>
+				)}
 				<div className='flex flex-col gap-4 rounded-xl border border-line p-4 sm:flex-row sm:items-center sm:justify-between'>
 					<div className='flex items-center gap-3'>
 						<div className='flex h-10 w-10 items-center justify-center rounded-xl bg-surface-muted'>

@@ -5,6 +5,16 @@ create table if not exists public.organizations (
   logo_url text,
   logo_path text,
   created_at timestamptz default now(),
+  required_work_references_count integer,
+  required_character_references_count integer,
+  constraint organizations_required_work_references_count_check check (
+    required_work_references_count is null
+    or required_work_references_count between 1 and 5
+  ),
+  constraint organizations_required_character_references_count_check check (
+    required_character_references_count is null
+    or required_character_references_count between 1 and 5
+  ),
   constraint organizations_slug_format_check check (slug ~ '^[a-z]+(-[a-z]+)*$')
 );
 
@@ -151,6 +161,53 @@ create table if not exists public.documents (
   superseded_at timestamptz
 );
 
+create table if not exists public.training_requirements (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  name text not null,
+  description text,
+  is_required boolean not null default true,
+  is_active boolean not null default true,
+  validity_months integer,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz,
+  constraint training_requirements_validity_months_check check (
+    validity_months is null
+    or validity_months between 1 and 240
+  ),
+  constraint training_requirements_unique_org_name unique (organization_id, name)
+);
+
+create table if not exists public.carer_training_records (
+  id uuid primary key default gen_random_uuid(),
+  carer_id uuid not null references public.carers(id) on delete cascade,
+  training_requirement_id uuid not null references public.training_requirements(id) on delete cascade,
+  status text not null default 'pending' check (
+    status in ('pending', 'completed', 'expired')
+  ),
+  observed_at date,
+  observed_by uuid references public.profiles(id) on delete set null,
+  observed_notes text,
+  expiry_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz,
+  constraint carer_training_records_unique unique (carer_id, training_requirement_id),
+  constraint carer_training_records_completed_check check (
+    status <> 'completed'
+    or observed_at is not null
+  )
+);
+
+create index if not exists idx_training_requirements_org_active
+on public.training_requirements (organization_id, is_active);
+
+create index if not exists idx_carer_training_records_carer
+on public.carer_training_records (carer_id);
+
+create index if not exists idx_carer_training_records_expiry
+on public.carer_training_records (expiry_date)
+where status = 'completed' and expiry_date is not null;
+
 create table if not exists public.carer_references (
   id uuid primary key default gen_random_uuid(),
   carer_id uuid not null references public.carers(id) on delete cascade,
@@ -195,6 +252,13 @@ create table if not exists public.organization_billing (
   current_period_end timestamptz,
   trial_start timestamptz,
   trial_end timestamptz,
+  grace_period_ends_at timestamptz,
+  pending_checkout_session_id text,
+  pending_checkout_url text,
+  pending_checkout_plan text,
+  pending_checkout_interval text,
+  pending_checkout_expires_at timestamptz,
+  last_billing_state_change_at timestamptz,
   cancel_at_period_end boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -206,9 +270,18 @@ create table if not exists public.organization_billing (
   ),
   constraint organization_billing_status_check check (
     status in ('not_configured', 'trialing', 'active', 'past_due', 'canceled')
+  ),
+  constraint organization_billing_pending_checkout_plan_check check (
+    pending_checkout_plan is null or pending_checkout_plan in ('starter', 'pro')
+  ),
+  constraint organization_billing_pending_checkout_interval_check check (
+    pending_checkout_interval is null or pending_checkout_interval in ('monthly', 'yearly')
   )
 );
 
+create index if not exists idx_organization_billing_pending_checkout
+on public.organization_billing (pending_checkout_session_id)
+where pending_checkout_session_id is not null;
 
 create table if not exists public.organization_invitations (
   id uuid primary key default gen_random_uuid(),
@@ -259,6 +332,7 @@ create table if not exists public.reminder_jobs (
   reminder_id uuid references public.reminders(id) on delete set null,
   carer_id uuid not null references public.carers(id) on delete cascade,
   document_id uuid references public.documents(id) on delete set null,
+  training_record_id uuid references public.carer_training_records(id) on delete set null,
   recipient_type text not null check (recipient_type in ('carer', 'management')),
   recipient_email text,
   recipient_name text,
@@ -283,6 +357,7 @@ create table if not exists public.reminder_logs (
   reminder_job_id uuid references public.reminder_jobs(id) on delete set null,
   carer_id uuid not null references public.carers(id) on delete cascade,
   document_id uuid references public.documents(id) on delete set null,
+  training_record_id uuid references public.carer_training_records(id) on delete set null,
   channel text not null default 'email',
   recipient_type text not null default 'carer',
   recipient_email text,
@@ -333,7 +408,30 @@ create table if not exists public.stripe_events (
   type text not null,
   received_at timestamptz not null default now(),
   processed_at timestamptz,
-  payload jsonb not null
+  payload jsonb not null,
+  processing_status text not null default 'pending',
+  processing_started_at timestamptz,
+  processing_completed_at timestamptz,
+  failed_at timestamptz,
+  attempt_count integer not null default 0,
+  last_error text,
+  notification_keys text[] not null default '{}',
+  constraint stripe_events_processing_status_check check (
+    processing_status in ('pending', 'processing', 'processed', 'failed')
+  )
+);
+
+create index if not exists idx_stripe_events_processing_status
+on public.stripe_events (processing_status, received_at);
+
+create table if not exists public.organization_usage_snapshots (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  active_carers integer not null,
+  snapshot_date date not null,
+  created_at timestamptz not null default now(),
+  constraint organization_usage_snapshots_active_carers_check check (active_carers >= 0),
+  constraint organization_usage_snapshots_unique unique (organization_id, snapshot_date)
 );
 
 create table if not exists public.audit_logs (

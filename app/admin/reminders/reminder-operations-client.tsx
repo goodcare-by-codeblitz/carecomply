@@ -37,7 +37,7 @@ type OpsData = {
 		workerUrl: string | null;
 		database: Record<string, unknown> | null;
 		databaseWarning: string | null;
-	};
+	} | null;
 	counts: Record<string, number>;
 	recentJobs: ReminderJob[];
 	recentLogs: ReminderLog[];
@@ -168,14 +168,14 @@ export function ReminderOperationsClient() {
 		() => data?.organizations.find((org) => org.id === data.selectedOrgId),
 		[data],
 	);
-	const database = data?.configuration.database ?? {};
+	const database = data?.configuration?.database ?? {};
 	const cronJobs = Array.isArray(database.cron_jobs) ? database.cron_jobs : [];
 	const cronRuns = Array.isArray(database.cron_runs) ? database.cron_runs : [];
 	const needsDatabaseSetup =
 		database.worker_url_configured !== true ||
 		database.worker_secret_configured !== true;
 	const dryRunHasMatches = (dryRun?.wouldQueueCount ?? 0) > 0;
-	const hasRecentJobs = (data?.recentJobs.length ?? 0) > 0;
+	const hasRecentJobs = (data?.recentJobs?.length ?? 0) > 0;
 
 	const loadData = useCallback(async (nextOrgId?: string) => {
 		setLoading(true);
@@ -199,9 +199,10 @@ export function ReminderOperationsClient() {
 	useEffect(() => {
 		if (!data) return;
 		setWorkerUrl(
-			data.configuration.workerUrl ||
+			data.configuration?.workerUrl ||
 			String(database.worker_url ?? '') ||
-			data.configuration.localWorkerUrl,
+			data.configuration?.localWorkerUrl ||
+			'',
 		);
 	}, [data, database.worker_url]);
 
@@ -315,10 +316,10 @@ export function ReminderOperationsClient() {
 					</div>
 					<div className='p-5 space-y-5'>
 						<div className='grid gap-3 md:grid-cols-2 lg:grid-cols-4'>
-							<StatusTile label='Worker URL' ok={database.worker_url_configured === true} detail={String(database.worker_url ?? data?.configuration.expectedWorkerUrl ?? '')} />
+							<StatusTile label='Worker URL' ok={database.worker_url_configured === true} detail={String(database.worker_url ?? data?.configuration?.expectedWorkerUrl ?? '')} />
 							<StatusTile label='DB worker secret' ok={database.worker_secret_configured === true} detail={String(database.worker_secret_source ?? 'platform_settings')} />
-							<StatusTile label='Resend API key' ok={Boolean(data?.configuration.resendApiKeyConfigured)} detail='RESEND_API_KEY' />
-							<StatusTile label='Resend from email' ok={Boolean(data?.configuration.resendFromEmailConfigured)} detail='RESEND_FROM_EMAIL' />
+							<StatusTile label='Resend API key' ok={Boolean(data?.configuration?.resendApiKeyConfigured)} detail='RESEND_API_KEY' />
+							<StatusTile label='Resend from email' ok={Boolean(data?.configuration?.resendFromEmailConfigured)} detail='RESEND_FROM_EMAIL' />
 						</div>
 
 						{data && (
@@ -326,7 +327,7 @@ export function ReminderOperationsClient() {
 								<p className='text-[13.5px] font-semibold text-ink'>Reminder worker settings</p>
 								<p className='mt-1 text-[13px] text-slate-600'>
 									For local Supabase, Postgres runs in Docker and should call the host app through{' '}
-									<code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>{data.configuration.localWorkerUrl}</code>.
+									<code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>{data.configuration?.localWorkerUrl}</code>.
 									Keep <code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>NEXT_PUBLIC_APP_URL</code> as{' '}
 									<code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>http://localhost:3000</code> for app links.
 								</p>
@@ -337,7 +338,7 @@ export function ReminderOperationsClient() {
 											id='worker-url'
 											value={workerUrl}
 											onChange={(e) => setWorkerUrl(e.target.value)}
-											placeholder={data.configuration.localWorkerUrl}
+											placeholder={data.configuration?.localWorkerUrl}
 										/>
 									</div>
 									<div className='space-y-1.5'>
@@ -377,7 +378,7 @@ export function ReminderOperationsClient() {
 						<div key={key} className='overflow-hidden rounded-xl border border-line bg-white p-4 shadow-card'>
 							<p className='text-[11.5px] font-semibold uppercase tracking-wider text-slate-400'>{label}</p>
 							<p className='mt-1.5 text-[28px] font-semibold leading-none text-ink'>
-								{data?.counts[key] ?? 0}
+								{data?.counts?.[key] ?? 0}
 							</p>
 						</div>
 					))}
@@ -538,7 +539,7 @@ export function ReminderOperationsClient() {
 						</div>
 						{(data?.reminders ?? []).length === 0 ? (
 							<div className='px-5 py-8 text-center text-[13px] text-slate-400'>No reminder rules found.</div>
-						) : data?.reminders.map((rule) => (
+						) : data?.reminders?.map((rule) => (
 							<div key={rule.id} className='grid grid-cols-5 gap-3 px-5 py-3 hover:bg-surface-page transition-colors'>
 								<span className='text-[13.5px] font-medium text-ink'>{rule.name}</span>
 								<span className='text-[13px] text-slate-500'>{rule.trigger_days} {rule.trigger_type.replace(/_/g, ' ')}</span>

@@ -54,7 +54,10 @@ export function getRequestContext(request?: Request): AuditRequestContext {
 }
 
 export async function createAuditLog(params: CreateAuditLogParams) {
-	const defaults = getAuditDefaults(params.action);
+	const defaults = getAuditDefaults(params.action, {
+		details: params.details,
+		source: params.source,
+	});
 	const requestContext = getRequestContext(params.request);
 	const admin = createAdminClient();
 

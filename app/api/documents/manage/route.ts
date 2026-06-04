@@ -1,4 +1,5 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import {
 	CARER_DOCUMENTS_BUCKET,
 	updateCarerOnboardingProgress,
@@ -219,6 +220,9 @@ export async function PATCH(request: Request) {
 		);
 	}
 
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
+
 	const nextExpiryDate = normalizeDate(parsed.data.expiryDate);
 	const nextReviewNotes = parsed.data.reviewNotes ?? document.review_notes;
 	const changedFields = [
@@ -370,6 +374,9 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	try {
 		await ensureBucket(admin);

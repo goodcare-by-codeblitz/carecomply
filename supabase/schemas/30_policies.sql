@@ -9,6 +9,8 @@ alter table public.carers enable row level security;
 alter table public.carer_references enable row level security;
 alter table public.document_types enable row level security;
 alter table public.documents enable row level security;
+alter table public.training_requirements enable row level security;
+alter table public.carer_training_records enable row level security;
 alter table public.organization_billing enable row level security;
 alter table public.reminders enable row level security;
 alter table public.reminder_jobs enable row level security;
@@ -16,6 +18,7 @@ alter table public.reminder_logs enable row level security;
 alter table public.reference_jobs enable row level security;
 alter table public.reference_logs enable row level security;
 alter table public.stripe_events enable row level security;
+alter table public.organization_usage_snapshots enable row level security;
 alter table public.audit_logs enable row level security;
 alter table public.audit_exports enable row level security;
 alter table public.auth_audit_events enable row level security;
@@ -190,6 +193,86 @@ using (
   )
 );
 
+create policy "Training viewers can view requirements"
+on public.training_requirements
+for select
+to authenticated
+using (
+  public.has_org_permission(organization_id, 'training.view')
+  or public.has_org_permission(organization_id, 'training.record')
+  or public.has_org_permission(organization_id, 'training.manage')
+);
+
+create policy "Training managers can create requirements"
+on public.training_requirements
+for insert
+to authenticated
+with check (public.has_org_permission(organization_id, 'training.manage'));
+
+create policy "Training managers can update requirements"
+on public.training_requirements
+for update
+to authenticated
+using (public.has_org_permission(organization_id, 'training.manage'))
+with check (public.has_org_permission(organization_id, 'training.manage'));
+
+create policy "Training managers can delete requirements"
+on public.training_requirements
+for delete
+to authenticated
+using (public.has_org_permission(organization_id, 'training.manage'));
+
+create policy "Training viewers can view carer records"
+on public.carer_training_records
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.carers c
+    where c.id = carer_training_records.carer_id
+      and (
+        public.has_org_permission(c.organization_id, 'training.view')
+        or public.has_org_permission(c.organization_id, 'training.record')
+        or public.has_org_permission(c.organization_id, 'training.manage')
+      )
+  )
+);
+
+create policy "Training recorders can create carer records"
+on public.carer_training_records
+for insert
+to authenticated
+with check (
+  exists (
+    select 1
+    from public.carers c
+    where c.id = carer_training_records.carer_id
+      and public.has_org_permission(c.organization_id, 'training.record')
+  )
+);
+
+create policy "Training recorders can update carer records"
+on public.carer_training_records
+for update
+to authenticated
+using (
+  exists (
+    select 1
+    from public.carers c
+    where c.id = carer_training_records.carer_id
+      and public.has_org_permission(c.organization_id, 'training.record')
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.carers c
+    where c.id = carer_training_records.carer_id
+      and public.has_org_permission(c.organization_id, 'training.record')
+  )
+);
+
 create policy "Members can view organization billing"
 on public.organization_billing
 for select
@@ -200,8 +283,14 @@ using (
 );
 
 grant select on table public.document_types to authenticated;
+grant select on table public.training_requirements to authenticated;
+grant select on table public.carer_training_records to authenticated;
 grant select on table public.organization_billing to authenticated;
+grant select on table public.organization_usage_snapshots to authenticated;
+grant select, insert, update, delete on table public.training_requirements to service_role;
+grant select, insert, update, delete on table public.carer_training_records to service_role;
 grant select, insert, update, delete on table public.organization_billing to service_role;
+grant select, insert, update, delete on table public.organization_usage_snapshots to service_role;
 grant select on table public.reminders to authenticated;
 grant select on table public.reminder_logs to authenticated;
 grant select, insert, update, delete on table public.reminders to service_role;
@@ -211,6 +300,16 @@ grant select, insert, update, delete on table public.reference_jobs to service_r
 grant select, insert, update, delete on table public.reference_logs to service_role;
 grant select on table public.reference_logs to authenticated;
 grant select, insert, update, delete on table public.stripe_events to service_role;
+
+create policy "Billing and audit viewers can view usage snapshots"
+on public.organization_usage_snapshots
+for select
+to authenticated
+using (
+  public.has_org_permission(organization_id, 'billing.view')
+  or public.has_org_permission(organization_id, 'billing.manage')
+  or public.has_org_permission(organization_id, 'audit.view')
+);
 
 create policy "Automation viewers can view reminders"
 on public.reminders

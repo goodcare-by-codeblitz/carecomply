@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 const requestSchema = personDetailsBaseSchema.extend({
 	token: z.string().min(1),
+	email: z.string().trim().email('Invalid email address').optional(),
 }).refine(
 	(data) =>
 		!data.emergencyContactName ||
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
 		const now = new Date().toISOString();
 		const row = {
 			...personDetailsToRow(result.data),
+			...(result.data.email ? { email: result.data.email.trim() } : {}),
 			updated_at: now,
 		};
 
@@ -48,7 +50,7 @@ export async function POST(request: Request) {
 			.update(row)
 			.eq('id', context.carer.id)
 			.select(
-				'id, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email',
+				'id, email, phone, address_line1, address_line2, city, county, postcode, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, emergency_contact_email',
 			)
 			.single();
 
@@ -66,6 +68,7 @@ export async function POST(request: Request) {
 			details: {
 				carer_email: context.carer.email,
 				before: {
+					email: context.carer.email,
 					phone: context.carer.phone,
 					address_line1: context.carer.address_line1,
 					address_line2: context.carer.address_line2,

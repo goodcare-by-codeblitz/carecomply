@@ -180,6 +180,31 @@ export async function POST(request: Request) {
 		);
 	}
 
+	const { data: existingMembership, error: existingMembershipError } = await admin
+		.from('organization_memberships')
+		.select('id')
+		.eq('organization_id', invite.organization_id)
+		.eq('user_id', acceptedUserId)
+		.is('deleted_at', null)
+		.maybeSingle();
+
+	if (existingMembershipError) {
+		return NextResponse.json(
+			{ error: 'Existing membership could not be checked.' },
+			{ status: 500 },
+		);
+	}
+
+	if (existingMembership) {
+		return NextResponse.json(
+			{
+				error:
+					'This person is already a team member. Restore or update their existing membership instead.',
+			},
+			{ status: 409 },
+		);
+	}
+
 	const { error: membershipError } = await admin
 		.from('organization_memberships')
 		.upsert(

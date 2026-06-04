@@ -14,7 +14,13 @@ export async function GET(request: Request) {
 
 	try {
 		const context = await getCarerOnboardingContext(admin, token);
-		const [documentTypesResult, documentsResult, referencesResult] =
+		const [
+			documentTypesResult,
+			documentsResult,
+			referencesResult,
+			trainingRequirementsResult,
+			trainingRecordsResult,
+		] =
 			await Promise.all([
 				admin
 					.from('document_types')
@@ -34,6 +40,16 @@ export async function GET(request: Request) {
 					.select(REFERENCE_SELECT_FIELDS)
 					.eq('carer_id', context.carer.id)
 					.order('created_at', { ascending: true }),
+				admin
+					.from('training_requirements')
+					.select('id, name, description, is_required, is_active, validity_months')
+					.eq('organization_id', context.carer.organization_id)
+					.eq('is_active', true)
+					.order('name'),
+				admin
+					.from('carer_training_records')
+					.select('id, training_requirement_id, status, observed_at, observed_notes, expiry_date, updated_at')
+					.eq('carer_id', context.carer.id),
 			]);
 
 		const { progress } = await updateCarerOnboardingProgress(
@@ -52,6 +68,8 @@ export async function GET(request: Request) {
 			documentTypes: documentTypesResult.data ?? [],
 			documents: documentsResult.data ?? [],
 			references: referencesResult.data ?? [],
+			trainingRequirements: trainingRequirementsResult.data ?? [],
+			trainingRecords: trainingRecordsResult.data ?? [],
 		});
 	} catch (error) {
 		if (error instanceof OnboardingTokenError) {

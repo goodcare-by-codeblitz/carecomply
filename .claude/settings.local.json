@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(xargs cat:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(supabase migration:*)",
+      "Bash(find /c/Users/simba/projects/carecomply/supabase/migrations -name \"*.sql\" -exec grep -l \"billing\\\\|stripe\\\\|plan\\\\|subscription\" {} \\\\;)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

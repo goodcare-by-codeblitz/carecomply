@@ -8,6 +8,8 @@ import {
 	type BillingStatus,
 } from '@/lib/billing';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { captureBillingException } from '@/lib/billing-monitoring';
+import { billingStripeErrorResponse } from '@/lib/billing-stripe-errors';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { getStripe } from '@/lib/stripe';
@@ -127,11 +129,27 @@ export async function POST(request: Request) {
 		);
 	}
 
-	const stripe = getStripe();
-	const [price, subscription] = await Promise.all([
-		getStripePrice(stripe, priceId),
-		stripe.subscriptions.retrieve(billing.stripe_subscription_id),
-	]);
+	let stripe: Stripe;
+	let price: Stripe.Price | null;
+	let subscription: Stripe.Subscription;
+	try {
+		stripe = getStripe();
+		[price, subscription] = await Promise.all([
+			getStripePrice(stripe, priceId),
+			stripe.subscriptions.retrieve(billing.stripe_subscription_id),
+		]);
+	} catch (error) {
+		captureBillingException(error, {
+			operation: 'subscription_stripe_retrieve',
+			organizationId: organization.id,
+			stripeSubscriptionId: billing.stripe_subscription_id,
+			extra: { plan: plan.id, interval, stripe_price_id: priceId },
+		});
+		return billingStripeErrorResponse(error, {
+			code: 'stripe_subscription_update_failed',
+			message: 'Subscription change could not be submitted.',
+		});
+	}
 
 	if (!price) {
 		return NextResponse.json(
@@ -192,24 +210,38 @@ export async function POST(request: Request) {
 		});
 	}
 
-	const updatedSubscription = await stripe.subscriptions.update(subscription.id, {
-		cancel_at_period_end: false,
-		proration_behavior: 'always_invoice',
-		payment_behavior: 'pending_if_incomplete',
-		items: [
-			{
-				id: item.id,
-				price: priceId,
+	let updatedSubscription: Stripe.Subscription;
+	try {
+		updatedSubscription = await stripe.subscriptions.update(subscription.id, {
+			cancel_at_period_end: false,
+			proration_behavior: 'always_invoice',
+			payment_behavior: 'pending_if_incomplete',
+			items: [
+				{
+					id: item.id,
+					price: priceId,
+				},
+			],
+			metadata: {
+				...subscription.metadata,
+				organization_id: organization.id,
+				user_id: user.id,
+				plan: plan.id,
+				interval,
 			},
-		],
-		metadata: {
-			...subscription.metadata,
-			organization_id: organization.id,
-			user_id: user.id,
-			plan: plan.id,
-			interval,
-		},
-	});
+		});
+	} catch (error) {
+		captureBillingException(error, {
+			operation: 'subscription_update',
+			organizationId: organization.id,
+			stripeSubscriptionId: subscription.id,
+			extra: { plan: plan.id, interval, stripe_price_id: priceId },
+		});
+		return billingStripeErrorResponse(error, {
+			code: 'stripe_subscription_update_failed',
+			message: 'Subscription change could not be submitted.',
+		});
+	}
 	const immediateUpgrade = await applyImmediateUpgrade({
 		organizationId: organization.id,
 		currentPlan: billing.plan,
@@ -276,12 +308,14 @@ function mapSubscriptionStatus(status: Stripe.Subscription.Status): BillingStatu
 		case 'active':
 			return 'active';
 		case 'past_due':
+		case 'unpaid':
+		case 'incomplete':
 			return 'past_due';
 		case 'canceled':
-		case 'unpaid':
+		case 'incomplete_expired':
 			return 'canceled';
-		default:
-			return 'past_due';
+		case 'paused':
+			return 'not_configured';
 	}
 }
 
@@ -341,6 +375,10 @@ async function applyImmediateUpgrade({
 			status: entitlementStatus,
 			stripe_subscription_id: subscription.id,
 			stripe_price_id: priceId,
+			grace_period_ends_at:
+				entitlementStatus === 'active' || entitlementStatus === 'trialing'
+					? null
+					: undefined,
 			cancel_at_period_end: subscription.cancel_at_period_end,
 		})
 		.eq('organization_id', organizationId);

@@ -18,6 +18,11 @@ import {
 	CarerReferenceActions,
 	type CarerReferenceForActions,
 } from '@/components/carer-reference-actions';
+import {
+	CarerTrainingActions,
+	type TrainingRecordForActions,
+	type TrainingRequirementForActions,
+} from '@/components/carer-training-actions';
 import { resolveOrgAccess } from '@/lib/orgs';
 import { isInvitationSetupMissing } from '@/lib/invitations';
 
@@ -122,6 +127,20 @@ export default async function CarerPage({ params }: CarerPageProps) {
 		.eq('organization_id', currentOrg.id)
 		.order('name');
 
+	const { data: trainingRequirements } = await supabase
+		.from('training_requirements')
+		.select('id, name, description, is_required, is_active, validity_months')
+		.eq('organization_id', currentOrg.id)
+		.eq('is_active', true)
+		.order('name');
+
+	const { data: trainingRecords } = await supabase
+		.from('carer_training_records')
+		.select(
+			'id, training_requirement_id, status, observed_at, observed_notes, expiry_date',
+		)
+		.eq('carer_id', id);
+
 	const initials = carer.full_name
 		.split(' ')
 		.map((n: string) => n[0])
@@ -186,6 +205,35 @@ export default async function CarerPage({ params }: CarerPageProps) {
 			<div className='mx-auto max-w-7xl px-6 py-6 lg:px-8'>
 				<div className='space-y-6'>
 					<CarerProfileCard carer={carer} />
+
+					<div className='grid items-stretch gap-6 lg:grid-cols-2'>
+						<InviteLinkCard
+							inviteId={invitation?.id}
+							inviteToken={invitation?.token}
+							inviteExpiresAt={invitation?.expires_at}
+							inviteStatus={invitation?.status}
+							carerName={carer.full_name}
+							carerEmail={carer.email}
+							className='h-full'
+						/>
+
+						<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card h-full'>
+							<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+								<h2 className='text-[14px] font-semibold text-ink'>
+									Upload Document
+								</h2>
+								<p className='mt-0.5 text-[12.5px] text-slate-500'>
+									Add a new compliance document for this carer
+								</p>
+							</div>
+							<div className='p-5'>
+								<DocumentUploader
+									carerId={carer.id}
+									documentTypes={documentTypes || []}
+								/>
+							</div>
+						</div>
+					</div>
 
 					{/* Documents */}
 					<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
@@ -319,13 +367,22 @@ export default async function CarerPage({ params }: CarerPageProps) {
 								<div className='space-y-2'>
 									{/* Header row */}
 									<div className='hidden grid-cols-[100px_1fr_120px_110px_100px_100px_1fr_80px] gap-3 px-3 lg:grid'>
-										{['Type', 'Referee', 'Relationship', 'Status', 'Requested', 'Responded', 'Request issue', ''].map(
-											(h) => (
-												<span key={h} className='text-[11px] font-semibold uppercase tracking-wide text-slate-400'>
-													{h}
-												</span>
-											),
-										)}
+										{[
+											'Type',
+											'Referee',
+											'Relationship',
+											'Status',
+											'Requested',
+											'Responded',
+											'Request issue',
+											'',
+										].map((h) => (
+											<span
+												key={h}
+												className='text-[11px] font-semibold uppercase tracking-wide text-slate-400'>
+												{h}
+											</span>
+										))}
 									</div>
 									{references.map((reference) => (
 										<div
@@ -425,32 +482,26 @@ export default async function CarerPage({ params }: CarerPageProps) {
 						</div>
 					</div>
 
-					<div className='grid items-stretch gap-6 lg:grid-cols-2'>
-						<InviteLinkCard
-							inviteId={invitation?.id}
-							inviteToken={invitation?.token}
-							inviteExpiresAt={invitation?.expires_at}
-							inviteStatus={invitation?.status}
-							carerName={carer.full_name}
-							carerEmail={carer.email}
-							className='h-full'
-						/>
-
-						<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card h-full'>
-							<div className='border-b border-line bg-surface-page px-5 py-3.5'>
-								<h2 className='text-[14px] font-semibold text-ink'>
-									Upload Document
-								</h2>
-								<p className='mt-0.5 text-[12.5px] text-slate-500'>
-									Add a new compliance document for this carer
-								</p>
-							</div>
-							<div className='p-5'>
-								<DocumentUploader
-									carerId={carer.id}
-									documentTypes={documentTypes || []}
-								/>
-							</div>
+					{/* Onsite Training */}
+					<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+						<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+							<h2 className='text-[14px] font-semibold text-ink'>
+								Onsite Training
+							</h2>
+							<p className='mt-0.5 text-[12.5px] text-slate-500'>
+								Manager or training officer observations, completion dates, and
+								expiry
+							</p>
+						</div>
+						<div className='p-4'>
+							<CarerTrainingActions
+								carerId={carer.id}
+								requirements={
+									(trainingRequirements ??
+										[]) as TrainingRequirementForActions[]
+								}
+								records={(trainingRecords ?? []) as TrainingRecordForActions[]}
+							/>
 						</div>
 					</div>
 				</div>

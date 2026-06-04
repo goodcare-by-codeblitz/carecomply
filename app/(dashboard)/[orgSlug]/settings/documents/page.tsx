@@ -23,6 +23,17 @@ type DocumentType = {
 	created_at: string | null;
 };
 
+type TrainingRequirement = {
+	id: string;
+	name: string;
+	description: string | null;
+	is_required: boolean;
+	is_active: boolean;
+	validity_months: number | null;
+	created_at: string | null;
+	updated_at: string | null;
+};
+
 type FormState = {
 	id?: string;
 	name: string;
@@ -31,11 +42,28 @@ type FormState = {
 	expiryMonths: string;
 };
 
+type TrainingFormState = {
+	id?: string;
+	name: string;
+	description: string;
+	isRequired: boolean;
+	isActive: boolean;
+	validityMonths: string;
+};
+
 const emptyForm: FormState = {
 	name: '',
 	description: '',
 	isRequired: true,
 	expiryMonths: '',
+};
+
+const emptyTrainingForm: TrainingFormState = {
+	name: '',
+	description: '',
+	isRequired: true,
+	isActive: true,
+	validityMonths: '',
 };
 
 async function readJsonResponse<T>(response: Response): Promise<T> {
@@ -55,10 +83,16 @@ export default function DocumentSettingsPage() {
 	const updateOrganization = useOrgStore((state) => state.updateOrganization);
 	const [organization, setOrganization] = useState(storeOrg ?? null);
 	const [documentTypes, setDocumentTypes] = useState<DocumentType[]>([]);
+	const [trainingRequirements, setTrainingRequirements] = useState<TrainingRequirement[]>([]);
 	const [form, setForm] = useState<FormState>(emptyForm);
+	const [trainingForm, setTrainingForm] =
+		useState<TrainingFormState>(emptyTrainingForm);
 	const [isLoading, setIsLoading] = useState(false);
+	const [isLoadingTraining, setIsLoadingTraining] = useState(false);
 	const [isSaving, setIsSaving] = useState(false);
+	const [isSavingTraining, setIsSavingTraining] = useState(false);
 	const [deletingId, setDeletingId] = useState<string | null>(null);
+	const [deletingTrainingId, setDeletingTrainingId] = useState<string | null>(null);
 
 	const [requireWork, setRequireWork] = useState(false);
 	const [workCount, setWorkCount] = useState('2');
@@ -140,6 +174,7 @@ export default function DocumentSettingsPage() {
 	}, [loadDocumentTypes]);
 
 	const resetForm = () => setForm(emptyForm);
+	const resetTrainingForm = () => setTrainingForm(emptyTrainingForm);
 
 	const editDocumentType = (documentType: DocumentType) => {
 		setForm({
@@ -151,6 +186,165 @@ export default function DocumentSettingsPage() {
 				? String(documentType.expiry_months)
 				: '',
 		});
+	};
+
+	const loadTrainingRequirements = useCallback(async () => {
+		if (!organization) return;
+
+		setIsLoadingTraining(true);
+		try {
+			const response = await fetch(
+				`/api/settings/training-requirements?orgId=${encodeURIComponent(
+					organization.id,
+				)}`,
+			);
+			const payload = await readJsonResponse<{
+				trainingRequirements?: TrainingRequirement[];
+				error?: string;
+			}>(response);
+
+			if (!response.ok) {
+				throw new Error(payload.error || 'Training requirements could not load');
+			}
+
+			setTrainingRequirements(payload.trainingRequirements ?? []);
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Training requirements could not load',
+			);
+		} finally {
+			setIsLoadingTraining(false);
+		}
+	}, [organization]);
+
+	useEffect(() => {
+		loadTrainingRequirements();
+	}, [loadTrainingRequirements]);
+
+	const editTrainingRequirement = (training: TrainingRequirement) => {
+		setTrainingForm({
+			id: training.id,
+			name: training.name,
+			description: training.description ?? '',
+			isRequired: training.is_required,
+			isActive: training.is_active,
+			validityMonths: training.validity_months
+				? String(training.validity_months)
+				: '',
+		});
+	};
+
+	const saveTrainingRequirement = async (
+		event: React.FormEvent<HTMLFormElement>,
+	) => {
+		event.preventDefault();
+		if (!organization) return;
+
+		const name = trainingForm.name.trim();
+		if (!name) {
+			toast.error('Training name is required');
+			return;
+		}
+
+		const validityMonths = trainingForm.validityMonths.trim()
+			? Number(trainingForm.validityMonths)
+			: null;
+
+		if (
+			validityMonths !== null &&
+			(!Number.isInteger(validityMonths) || validityMonths <= 0)
+		) {
+			toast.error('Validity period must be a positive number of months');
+			return;
+		}
+
+		setIsSavingTraining(true);
+		try {
+			const response = await fetch('/api/settings/training-requirements', {
+				method: trainingForm.id ? 'PATCH' : 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					id: trainingForm.id,
+					orgId: organization.id,
+					name,
+					description: trainingForm.description.trim(),
+					isRequired: trainingForm.isRequired,
+					isActive: trainingForm.isActive,
+					validityMonths,
+				}),
+			});
+			const payload = await readJsonResponse<{
+				trainingRequirement?: TrainingRequirement;
+				error?: string;
+			}>(response);
+
+			if (!response.ok || !payload.trainingRequirement) {
+				throw new Error(payload.error || 'Training requirement could not save');
+			}
+
+			setTrainingRequirements((current) =>
+				trainingForm.id
+					? current.map((item) =>
+							item.id === payload.trainingRequirement!.id
+								? payload.trainingRequirement!
+								: item,
+						)
+					: [...current, payload.trainingRequirement!].sort((a, b) =>
+							a.name.localeCompare(b.name),
+						),
+			);
+			resetTrainingForm();
+			toast.success(
+				trainingForm.id
+					? 'Training requirement updated'
+					: 'Training requirement created',
+			);
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Training requirement could not save',
+			);
+		} finally {
+			setIsSavingTraining(false);
+		}
+	};
+
+	const deleteTrainingRequirement = async (training: TrainingRequirement) => {
+		if (!organization) return;
+
+		setDeletingTrainingId(training.id);
+		try {
+			const response = await fetch('/api/settings/training-requirements', {
+				method: 'DELETE',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					orgId: organization.id,
+					id: training.id,
+				}),
+			});
+			const payload = await readJsonResponse<{ error?: string }>(response);
+
+			if (!response.ok) {
+				throw new Error(payload.error || 'Training requirement could not delete');
+			}
+
+			setTrainingRequirements((current) =>
+				current.filter((item) => item.id !== training.id),
+			);
+			if (trainingForm.id === training.id) resetTrainingForm();
+			toast.success('Training requirement deleted');
+		} catch (error) {
+			toast.error(
+				error instanceof Error
+					? error.message
+					: 'Training requirement could not delete',
+			);
+		} finally {
+			setDeletingTrainingId(null);
+		}
 	};
 
 	const saveDocumentType = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -479,6 +673,204 @@ export default function DocumentSettingsPage() {
 						<div className='rounded-xl border border-dashed border-line p-8 text-center'>
 							<p className='text-[13px] text-slate-400'>
 								No document requirements have been configured yet.
+							</p>
+						</div>
+					)}
+				</div>
+			</div>
+
+			{/* Training requirements */}
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-3.5'>
+					<p className='text-[14px] font-semibold text-ink'>Onsite Training Requirements</p>
+					<p className='mt-0.5 text-[12.5px] text-slate-500'>
+						Define training managers or training officers complete during onboarding.
+					</p>
+				</div>
+				<div className='p-5'>
+					<form
+						onSubmit={saveTrainingRequirement}
+						className='rounded-xl border border-line p-4'>
+						<div className='grid gap-4 md:grid-cols-2'>
+							<div className='space-y-2'>
+								<Label htmlFor='training-name' className='text-[13px] font-medium text-ink'>
+									Training name
+								</Label>
+								<Input
+									id='training-name'
+									value={trainingForm.name}
+									onChange={(event) =>
+										setTrainingForm((current) => ({
+											...current,
+											name: event.target.value,
+										}))
+									}
+									placeholder='Manual handling'
+									className='text-[13.5px]'
+								/>
+							</div>
+							<div className='space-y-2'>
+								<Label htmlFor='validity-months' className='text-[13px] font-medium text-ink'>
+									Validity months
+								</Label>
+								<Input
+									id='validity-months'
+									type='number'
+									min='1'
+									value={trainingForm.validityMonths}
+									onChange={(event) =>
+										setTrainingForm((current) => ({
+											...current,
+											validityMonths: event.target.value,
+										}))
+									}
+									placeholder='12'
+									className='text-[13.5px]'
+								/>
+							</div>
+						</div>
+						<div className='mt-4 space-y-2'>
+							<Label htmlFor='training-description' className='text-[13px] font-medium text-ink'>
+								Description
+							</Label>
+							<Textarea
+								id='training-description'
+								value={trainingForm.description}
+								onChange={(event) =>
+									setTrainingForm((current) => ({
+										...current,
+										description: event.target.value,
+									}))
+								}
+								placeholder='Optional guidance shown to carers and managers'
+								rows={3}
+								className='text-[13.5px]'
+							/>
+						</div>
+						<div className='mt-4 flex flex-wrap gap-4'>
+							<label className='flex items-center gap-3 text-[13px] text-ink'>
+								<Checkbox
+									checked={trainingForm.isRequired}
+									onCheckedChange={(value) =>
+										setTrainingForm((current) => ({
+											...current,
+											isRequired: value === true,
+										}))
+									}
+								/>
+								Required for onboarding completion
+							</label>
+							<label className='flex items-center gap-3 text-[13px] text-ink'>
+								<Checkbox
+									checked={trainingForm.isActive}
+									onCheckedChange={(value) =>
+										setTrainingForm((current) => ({
+											...current,
+											isActive: value === true,
+										}))
+									}
+								/>
+								Active
+							</label>
+						</div>
+						<div className='mt-4 flex flex-col gap-2 sm:flex-row'>
+							<Button type='submit' disabled={isSavingTraining}>
+								{isSavingTraining ? (
+									<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+								) : (
+									<Plus className='mr-2 h-4 w-4' />
+								)}
+								{trainingForm.id ? 'Update training' : 'Create training'}
+							</Button>
+							{trainingForm.id && (
+								<Button type='button' variant='outline' onClick={resetTrainingForm}>
+									<X className='mr-2 h-4 w-4' />
+									Cancel edit
+								</Button>
+							)}
+						</div>
+					</form>
+				</div>
+			</div>
+
+			<div className='overflow-hidden rounded-xl border border-line bg-white shadow-card'>
+				<div className='border-b border-line bg-surface-page px-5 py-2.5'>
+					<span className='text-[11.5px] font-semibold uppercase tracking-[0.10em] text-slate-400'>
+						Configured Training
+					</span>
+				</div>
+				<div className='p-5'>
+					{isLoadingTraining ? (
+						<div className='flex justify-center py-8'>
+							<Loader2 className='h-6 w-6 animate-spin text-slate-400' />
+						</div>
+					) : trainingRequirements.length > 0 ? (
+						<div className='space-y-3'>
+							{trainingRequirements.map((training) => (
+								<div
+									key={training.id}
+									className='flex flex-col gap-4 rounded-xl border border-line p-4 sm:flex-row sm:items-center sm:justify-between'>
+									<div className='min-w-0'>
+										<div className='flex flex-wrap items-center gap-2'>
+											<p className='text-[13.5px] font-medium text-ink'>{training.name}</p>
+											{training.is_required && (
+												<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-brand-50 text-brand-700'>
+													Required
+												</span>
+											)}
+											{training.is_active ? (
+												<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-ok-50 text-ok'>
+													Active
+												</span>
+											) : (
+												<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-surface-muted text-slate-600'>
+													Inactive
+												</span>
+											)}
+											{training.validity_months && (
+												<span className='inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-surface-muted text-slate-600'>
+													Valid for {training.validity_months} months
+												</span>
+											)}
+										</div>
+										{training.description && (
+											<p className='mt-1 text-[12.5px] text-slate-400'>
+												{training.description}
+											</p>
+										)}
+									</div>
+									<div className='flex gap-2'>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											className='h-7 text-[12.5px]'
+											onClick={() => editTrainingRequirement(training)}>
+											<Pencil className='mr-1.5 h-3.5 w-3.5' />
+											Edit
+										</Button>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											className='h-7 text-[12.5px]'
+											disabled={deletingTrainingId === training.id}
+											onClick={() => deleteTrainingRequirement(training)}>
+											{deletingTrainingId === training.id ? (
+												<Loader2 className='mr-1.5 h-3.5 w-3.5 animate-spin' />
+											) : (
+												<Trash2 className='mr-1.5 h-3.5 w-3.5' />
+											)}
+											Delete
+										</Button>
+									</div>
+								</div>
+							))}
+						</div>
+					) : (
+						<div className='rounded-xl border border-dashed border-line p-8 text-center'>
+							<p className='text-[13px] text-slate-400'>
+								No onsite training requirements have been configured yet.
 							</p>
 						</div>
 					)}

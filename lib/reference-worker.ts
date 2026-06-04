@@ -4,6 +4,12 @@ import {
 } from '@/lib/carer-communications';
 import { getReferenceFormLink, ensureReferenceToken } from '@/lib/reference-requests';
 import type { createAdminClient } from '@/lib/supabase/admin';
+import {
+	ReferenceRequest,
+	ReferenceReminder,
+	ReferenceResponseReceivedEmail,
+} from '@/emails';
+import { renderEmailTemplate } from '@/emails/render';
 import { Resend } from 'resend';
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -29,6 +35,7 @@ type ReferenceForEmail = {
 	status: string;
 	reference_token: string | null;
 	token_expires_at: string | null;
+	request_sent_at: string | null;
 	chase_count: number | null;
 	carers:
 		| {
@@ -52,10 +59,12 @@ type ReferenceForManagerNotification = {
 	id: string;
 	full_name: string;
 	email: string;
+	organization: string | null;
 	relationship: string;
 	reference_type: string;
 	status: string;
 	response_received_at: string | null;
+	response_payload: Record<string, unknown> | null;
 	carers:
 		| {
 				id: string;
@@ -140,7 +149,7 @@ async function sendReferenceRequest(admin: AdminClient, job: ReferenceJob) {
 	const { data, error } = await admin
 		.from('carer_references')
 		.select(
-			'id, full_name, email, organization, relationship, reference_type, status, reference_token, token_expires_at, chase_count, carers!inner(id, full_name, email, status, organization_id)',
+			'id, full_name, email, organization, relationship, reference_type, status, reference_token, token_expires_at, request_sent_at, chase_count, carers!inner(id, full_name, email, status, organization_id)',
 		)
 		.eq('id', job.reference_id)
 		.maybeSingle();
@@ -186,20 +195,31 @@ async function sendReferenceRequest(admin: AdminClient, job: ReferenceJob) {
 	const subject = isChase
 		? `Reminder: reference request for ${carer.full_name}`
 		: `Reference request for ${carer.full_name}`;
+	const html = isChase
+		? await renderEmailTemplate(ReferenceReminder, {
+				refereeName: reference.full_name,
+				carerName: carer.full_name,
+				organizationName: org.name,
+				referenceFormUrl: formUrl,
+				daysPending: calcDaysPending(reference.request_sent_at),
+				supportEmail: fromEmail,
+			})
+		: await renderEmailTemplate(ReferenceRequest, {
+				refereeName: reference.full_name,
+				carerName: carer.full_name,
+				organizationName: org.name,
+				referenceFormUrl: formUrl,
+				requestedBy: `${org.name} team`,
+				supportEmail: fromEmail,
+				expiryDate: formatShortDate(reference.token_expires_at),
+			});
+
 	const resend = new Resend(apiKey);
 	const { data: emailData, error: emailError } = await resend.emails.send({
 		from: `${org.name} <${fromEmail}>`,
 		to: reference.email,
 		subject,
-		html: buildReferenceRequestHtml({
-			orgName: org.name,
-			refereeName: reference.full_name,
-			carerName: carer.full_name,
-			relationship: reference.relationship,
-			referenceType: reference.reference_type,
-			formUrl,
-			isChase,
-		}),
+		html,
 	});
 
 	if (emailError) {
@@ -242,7 +262,7 @@ async function sendManagerNotification(admin: AdminClient, job: ReferenceJob) {
 	const { data, error } = await admin
 		.from('carer_references')
 		.select(
-			'id, full_name, email, relationship, reference_type, status, response_received_at, carers!inner(id, full_name, email, organization_id)',
+			'id, full_name, email, organization, relationship, reference_type, status, response_received_at, response_payload, carers!inner(id, full_name, email, organization_id)',
 		)
 		.eq('id', job.reference_id)
 		.maybeSingle();
@@ -285,25 +305,36 @@ async function sendManagerNotification(admin: AdminClient, job: ReferenceJob) {
 
 	const dashboardUrl = `${(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '')}/${org.slug}/carers/${carer.id}`;
 	const resend = new Resend(apiKey);
-	const { data: emailData, error: emailError } = await resend.emails.send({
-		from: `${org.name} <${fromEmail}>`,
-		to: validRecipients.map((recipient) => recipient.email),
-		subject: `${reference.full_name} responded to ${carer.full_name}'s reference request`,
-		html: buildManagerNotificationHtml({
-			orgName: org.name,
-			refereeName: reference.full_name,
-			carerName: carer.full_name,
-			dashboardUrl,
-		}),
-	});
+	const subject = `${reference.full_name} responded to ${carer.full_name}'s reference request`;
+	const responsePayload = reference.response_payload ?? {};
+	const refereeRole = formatRefereeRole(responsePayload, reference);
+	const relationshipConfirmed = formatRelationshipConfirmed(responsePayload);
+	const submittedDate = formatDateTime(reference.response_received_at);
 
-	if (emailError) {
-		await markRetryable(admin, job, emailError.message || 'Resend rejected email.');
-		return job.attempts >= job.max_attempts ? 'failed' : 'retryable';
-	}
-
-	await markSent(admin, job);
 	for (const recipient of validRecipients) {
+		const html = await renderEmailTemplate(ReferenceResponseReceivedEmail, {
+			managerName: recipient.full_name ?? 'there',
+			organizationName: org.name,
+			carerName: carer.full_name,
+			refereeName: reference.full_name,
+			refereeRole,
+			relationshipConfirmed,
+			submittedDate,
+			reviewUrl: dashboardUrl,
+			supportEmail: fromEmail,
+		});
+		const { data: emailData, error: emailError } = await resend.emails.send({
+			from: `${org.name} <${fromEmail}>`,
+			to: recipient.email,
+			subject,
+			html,
+		});
+
+		if (emailError) {
+			await markRetryable(admin, job, emailError.message || 'Resend rejected email.');
+			return job.attempts >= job.max_attempts ? 'failed' : 'retryable';
+		}
+
 		await insertLog(admin, job, {
 			eventType: 'manager_notification',
 			recipientType: 'manager',
@@ -313,6 +344,7 @@ async function sendManagerNotification(admin: AdminClient, job: ReferenceJob) {
 		});
 	}
 
+	await markSent(admin, job);
 	return 'sent' as const;
 }
 
@@ -442,45 +474,65 @@ async function insertLog(
 	});
 }
 
-function buildReferenceRequestHtml(params: {
-	orgName: string;
-	refereeName: string;
-	carerName: string;
-	relationship: string;
-	referenceType: string;
-	formUrl: string;
-	isChase: boolean;
-}) {
-	return `
-		<p>Hi ${escapeHtml(params.refereeName)},</p>
-		<p>${escapeHtml(params.orgName)} has asked you to provide a ${escapeHtml(params.referenceType)} reference for ${escapeHtml(params.carerName)}.</p>
-		<p>Relationship: ${escapeHtml(params.relationship)}</p>
-		<p><a href="${params.formUrl}">Complete reference form</a></p>
-		<p>${params.isChase ? 'This is a reminder because the reference has not been received yet.' : 'Thank you for helping us complete this compliance check.'}</p>
-	`;
+function formatShortDate(iso: string | null): string {
+	if (!iso) return '';
+	return new Intl.DateTimeFormat('en-GB', {
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric',
+	}).format(new Date(iso));
 }
 
-function buildManagerNotificationHtml(params: {
-	orgName: string;
-	refereeName: string;
-	carerName: string;
-	dashboardUrl: string;
-}) {
-	return `
-		<p>${escapeHtml(params.refereeName)} has submitted a reference for ${escapeHtml(params.carerName)}.</p>
-		<p><a href="${params.dashboardUrl}">Review the response in CareComply</a></p>
-	`;
+function formatDateTime(iso: string | null): string {
+	if (!iso) return 'Unknown';
+	return new Intl.DateTimeFormat('en-GB', {
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit',
+	}).format(new Date(iso));
 }
 
-function escapeHtml(value: string) {
+function formatRefereeRole(
+	responsePayload: Record<string, unknown>,
+	reference: ReferenceForManagerNotification,
+) {
+	const title = getPayloadString(responsePayload.refereeJobTitle);
+	const organization = getPayloadString(responsePayload.refereeOrganization);
+	if (title && organization) return `${title}, ${organization}`;
+	if (title) return title;
+	if (organization) return organization;
+	return reference.organization || reference.relationship || 'Reference contact';
+}
+
+function formatRelationshipConfirmed(responsePayload: Record<string, unknown>) {
+	const relationship = labelFromSnake(
+		getPayloadString(responsePayload.relationshipToApplicant),
+	);
+	const knownFor = getPayloadString(responsePayload.howLongKnown);
+	if (relationship && knownFor) return `Yes - ${relationship}, ${knownFor}`;
+	if (relationship) return `Yes - ${relationship}`;
+	return 'Submitted by referee';
+}
+
+function labelFromSnake(value: string) {
+	if (!value) return '';
 	return value
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;')
-		.replaceAll("'", '&#39;');
+		.split('_')
+		.map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+		.join(' ');
+}
+
+function calcDaysPending(requestSentAt: string | null): number {
+	if (!requestSentAt) return 1;
+	return Math.max(1, Math.floor((Date.now() - new Date(requestSentAt).getTime()) / 86400000));
 }
 
 function getPayloadNumber(value: unknown) {
 	return typeof value === 'number' ? value : Number.parseInt(String(value ?? '0'), 10) || 0;
+}
+
+function getPayloadString(value: unknown) {
+	return typeof value === 'string' ? value.trim() : '';
 }

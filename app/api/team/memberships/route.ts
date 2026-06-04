@@ -1,11 +1,16 @@
 import { PERMISSIONS } from '@/lib/permissions';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import {
 	teamDetailsToRow,
 	teamMemberDetailsBaseSchema,
 } from '@/lib/person-profile';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
+import {
+	LAST_ADMIN_ERROR,
+	wouldRemoveLastOrganizationAdmin,
+} from '@/lib/team-admin-guards';
 import { NextResponse } from 'next/server';
 
 type MembershipActionRequest = {
@@ -53,6 +58,7 @@ type ProfileRow = {
 };
 
 const BLOCKING_SELF_ACTIONS = new Set([
+	'update_role',
 	'remove',
 	'mark_suspended',
 	'mark_former',
@@ -145,6 +151,9 @@ export async function PATCH(request: Request) {
 		);
 	}
 
+	const billing = await requireBillingCanModify(targetMembership.organization_id);
+	if (!billing.ok) return billing.response;
+
 	const { data: profile, error: profileError } = await admin
 		.from('profiles')
 		.select('full_name, email')
@@ -234,6 +243,33 @@ export async function PATCH(request: Request) {
 
 	if (payload.action !== 'update_role') {
 		const statusAction = payload.action === 'remove' ? 'mark_former' : payload.action;
+
+		if (
+			statusAction === 'mark_suspended' ||
+			statusAction === 'mark_former'
+		) {
+			try {
+				const removesLastAdmin = await wouldRemoveLastOrganizationAdmin({
+					admin,
+					membership: targetMembership,
+					nextStatus: statusAction === 'mark_suspended' ? 'suspended' : 'former',
+				});
+
+				if (removesLastAdmin) {
+					return NextResponse.json(
+						{ error: LAST_ADMIN_ERROR },
+						{ status: 409 },
+					);
+				}
+			} catch (error) {
+				console.error('[team-memberships] last admin status check failed', error);
+				return NextResponse.json(
+					{ error: 'Admin access could not be verified.' },
+					{ status: 500 },
+				);
+			}
+		}
+
 		const result = await updateMembershipStatus({
 			admin,
 			membership: targetMembership,
@@ -305,6 +341,27 @@ export async function PATCH(request: Request) {
 		return NextResponse.json(
 			{ error: 'Role was not found for this organization.' },
 			{ status: 400 },
+		);
+	}
+
+	try {
+		const removesLastAdmin = await wouldRemoveLastOrganizationAdmin({
+			admin,
+			membership: targetMembership,
+			nextRoleId: payload.roleId,
+		});
+
+		if (removesLastAdmin) {
+			return NextResponse.json(
+				{ error: LAST_ADMIN_ERROR },
+				{ status: 409 },
+			);
+		}
+	} catch (error) {
+		console.error('[team-memberships] last admin role check failed', error);
+		return NextResponse.json(
+			{ error: 'Admin access could not be verified.' },
+			{ status: 500 },
 		);
 	}
 

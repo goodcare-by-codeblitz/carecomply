@@ -60,11 +60,11 @@ export function InviteLinkCard({
 	);
 	const canUseInvite = Boolean(
 		inviteId &&
-			currentToken &&
-			currentStatus !== 'revoked' &&
-			currentStatus !== 'accepted' &&
-			currentStatus !== 'expired' &&
-			!isExpired,
+		currentToken &&
+		currentStatus !== 'revoked' &&
+		currentStatus !== 'accepted' &&
+		currentStatus !== 'expired' &&
+		!isExpired,
 	);
 
 	const copyLink = async () => {
@@ -161,10 +161,14 @@ export function InviteLinkCard({
 	};
 
 	return (
-		<Card className={cn('flex flex-col', className)}>
-			<CardHeader>
+		<Card
+			className={cn(
+				'flex flex-col overflow-hidden rounded-xl border border-line bg-white shadow-card h-full',
+				className,
+			)}>
+			<CardHeader className='border-b border-line bg-surface-page px-5 py-3.5 mb-6'>
 				<CardTitle className='text-base'>Invite Link</CardTitle>
-				<CardDescription>
+				<CardDescription className='text-[12.5px] text-slate-500'>
 					Share onboarding access with {carerName || carerEmail}.
 				</CardDescription>
 			</CardHeader>
@@ -220,7 +224,9 @@ export function InviteLinkCard({
 						<RefreshCw className='mr-2 h-4 w-4' />
 						Regenerate link
 					</Button>
-					{currentStatus === 'revoked' || currentStatus === 'expired' || isExpired ? (
+					{currentStatus === 'revoked' ||
+					currentStatus === 'expired' ||
+					isExpired ? (
 						<Button
 							type='button'
 							variant='outline'
@@ -247,7 +253,9 @@ export function InviteLinkCard({
 									isManaging ||
 									isSending
 								}
-								onClick={() => manageInvitation('reinvite', { sendAfter: true })}>
+								onClick={() =>
+									manageInvitation('reinvite', { sendAfter: true })
+								}>
 								<Mail className='mr-2 h-4 w-4' />
 								Regenerate & send
 							</Button>
@@ -267,8 +275,8 @@ export function InviteLinkCard({
 										<AlertDialogTitle>Revoke this invitation?</AlertDialogTitle>
 										<AlertDialogDescription>
 											The current onboarding link will stop working immediately.
-											You can reinvite {carerName || carerEmail} later with a new
-											link.
+											You can reinvite {carerName || carerEmail} later with a
+											new link.
 										</AlertDialogDescription>
 									</AlertDialogHeader>
 									<AlertDialogFooter>

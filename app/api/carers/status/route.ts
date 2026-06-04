@@ -1,5 +1,6 @@
 import { updateCarerOnboardingProgress } from '@/lib/onboarding';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -65,6 +66,9 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	if (carer.status === 'former' && result.data.action !== 'restore_former') {
 		return NextResponse.json(

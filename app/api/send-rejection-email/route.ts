@@ -4,9 +4,11 @@ import {
 	getInviteExpiry,
 } from '@/lib/invitations';
 import {
-	canReceiveOperationalCommunication,
-	carerCommunicationBlockedMessage,
+	canReceiveDocumentRejectionCommunication,
+	documentRejectionCommunicationBlockedMessage,
 } from '@/lib/carer-communications';
+import { DocumentRejectedCarerEmail } from '@/emails';
+import { renderEmailTemplate } from '@/emails/render';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
@@ -28,6 +30,11 @@ type CarerWithOrg = {
 	email: string;
 	status: string | null;
 	organizations: { name: string } | { name: string }[] | null;
+};
+
+type ReviewerProfile = {
+	full_name: string | null;
+	email: string | null;
 };
 
 function normalizeRelation<T>(value: T | T[] | null | undefined) {
@@ -79,10 +86,10 @@ export async function POST(request: NextRequest) {
 		const organization = normalizeRelation(carer.organizations);
 		const organizationName = organization?.name || 'Your Care Agency';
 
-		if (!canReceiveOperationalCommunication(carer.status)) {
+		if (!canReceiveDocumentRejectionCommunication(carer.status)) {
 			return NextResponse.json(
 				{
-					error: carerCommunicationBlockedMessage(carer.status),
+					error: documentRejectionCommunicationBlockedMessage(carer.status),
 					emailSent: false,
 					skipped: true,
 				},
@@ -136,33 +143,28 @@ export async function POST(request: NextRequest) {
 			process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
 			'carer',
 		);
-		const emailHtml = `
-      <div style="font-family: system-ui, -apple-system, sans-serif; max-width: 600px; margin: 0 auto; padding: 40px 20px;">
-        <h1 style="color: #1a1a2e; font-size: 24px; font-weight: 600; margin-bottom: 24px; text-align: center;">
-          Document Review Update
-        </h1>
-        <p style="color: #374151; font-size: 16px; line-height: 1.6;">Hi ${carerName},</p>
-        <p style="color: #374151; font-size: 16px; line-height: 1.6;">
-          Your <strong>${documentType}</strong> document submitted to <strong>${organizationName}</strong> has been reviewed and requires your attention.
-        </p>
-        <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 20px; margin: 24px 0;">
-          <p style="color: #991b1b; font-weight: 600; margin: 0 0 8px 0; font-size: 14px;">Reason for rejection:</p>
-          <p style="color: #7f1d1d; margin: 0; font-size: 15px; line-height: 1.5;">${rejectionReason}</p>
-        </div>
-        <p style="color: #374151; font-size: 16px; line-height: 1.6;">Please upload a new document to complete your compliance requirements.</p>
-        <div style="text-align: center; margin: 32px 0;">
-          <a href="${onboardingUrl}" style="display: inline-block; background: #1a1a2e; color: white; padding: 16px 32px; border-radius: 10px; text-decoration: none; font-weight: 500; font-size: 16px;">
-            Upload New Document
-          </a>
-        </div>
-        <p style="color: #6b7280; font-size: 14px; line-height: 1.6; text-align: center;">
-          This link remains available until the onboarding invitation expires. If you have any questions, please contact your agency directly.
-        </p>
-      </div>
-    `;
 
 		if (process.env.RESEND_API_KEY) {
 			const resend = new Resend(process.env.RESEND_API_KEY);
+			const supportEmail =
+				process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+			const { data: reviewer } = await admin
+				.from('profiles')
+				.select('full_name, email')
+				.eq('id', user.id)
+				.maybeSingle();
+			const reviewerProfile = reviewer as ReviewerProfile | null;
+			const reviewerName =
+				reviewerProfile?.full_name ?? reviewerProfile?.email ?? organizationName;
+			const emailHtml = await renderEmailTemplate(DocumentRejectedCarerEmail, {
+				carerName,
+				organizationName,
+				documentName: documentType,
+				rejectionReason,
+				reviewerName,
+				actionUrl: onboardingUrl,
+				supportEmail,
+			});
 
 			const { error: emailError } = await resend.emails.send({
 				from:

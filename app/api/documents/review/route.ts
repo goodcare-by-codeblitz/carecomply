@@ -1,7 +1,10 @@
 import { createUserAuditLog } from '@/lib/audit-server';
+import { requireBillingCanModify } from '@/lib/billing-guard';
+import { DocumentRejectedCarerEmail } from '@/emails';
+import { renderEmailTemplate } from '@/emails/render';
 import {
-	canReceiveOperationalCommunication,
-	carerCommunicationBlockedMessage,
+	canReceiveDocumentRejectionCommunication,
+	documentRejectionCommunicationBlockedMessage,
 } from '@/lib/carer-communications';
 import { updateCarerOnboardingProgress } from '@/lib/onboarding';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -50,6 +53,11 @@ type DocumentForReview = {
 		  }[]
 		| null;
 	document_type: { name: string } | { name: string }[] | null;
+};
+
+type ReviewerProfile = {
+	full_name: string | null;
+	email: string | null;
 };
 
 function normalizeRelation<T>(value: T | T[] | null | undefined) {
@@ -129,6 +137,9 @@ export async function POST(request: Request) {
 			{ status: 403 },
 		);
 	}
+
+	const billing = await requireBillingCanModify(carer.organization_id);
+	if (!billing.ok) return billing.response;
 
 	const reviewedAt = new Date().toISOString();
 	const nextStatus = result.data.action === 'approve' ? 'approved' : 'rejected';
@@ -224,6 +235,7 @@ export async function POST(request: Request) {
 			rejectionReason: result.data.rejectionReason ?? '',
 			organizationId: carer.organization_id,
 			organizationName: organization?.name ?? 'CareComply',
+			reviewerId: user.id,
 		});
 	}
 
@@ -245,6 +257,7 @@ async function sendRejectionEmail({
 	rejectionReason,
 	organizationId,
 	organizationName,
+	reviewerId,
 }: {
 	admin: ReturnType<typeof createAdminClient>;
 	carerId: string;
@@ -255,13 +268,14 @@ async function sendRejectionEmail({
 	rejectionReason: string;
 	organizationId: string;
 	organizationName: string;
+	reviewerId: string;
 }) {
 	try {
 		const apiKey = process.env.RESEND_API_KEY;
 		const fromEmail = process.env.RESEND_FROM_EMAIL;
 
-		if (!canReceiveOperationalCommunication(carerStatus)) {
-			return carerCommunicationBlockedMessage(carerStatus);
+		if (!canReceiveDocumentRejectionCommunication(carerStatus)) {
+			return documentRejectionCommunicationBlockedMessage(carerStatus);
 		}
 
 		if (!apiKey || !fromEmail) {
@@ -287,18 +301,33 @@ async function sendRejectionEmail({
 				)
 			: null;
 
+		const { data: reviewer } = await admin
+			.from('profiles')
+			.select('full_name, email')
+			.eq('id', reviewerId)
+			.maybeSingle();
+		const reviewerProfile = reviewer as ReviewerProfile | null;
+		const reviewerName =
+			reviewerProfile?.full_name ?? reviewerProfile?.email ?? organizationName;
+		const actionUrl =
+			inviteUrl ??
+			`${(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, '')}/onboarding`;
+		const html = await renderEmailTemplate(DocumentRejectedCarerEmail, {
+			carerName,
+			organizationName,
+			documentName: documentType,
+			rejectionReason,
+			reviewerName,
+			actionUrl,
+			supportEmail: fromEmail,
+		});
+
 		const resend = new Resend(apiKey);
 		await resend.emails.send({
 			from: `${organizationName} <${fromEmail}>`,
 			to: carerEmail,
 			subject: `Action Required: Your ${documentType} document needs attention`,
-			html: `
-				<p>Hi ${carerName},</p>
-				<p>Your <strong>${documentType}</strong> document submitted to <strong>${organizationName}</strong> has been reviewed and requires your attention.</p>
-				<p><strong>Reason:</strong> ${rejectionReason}</p>
-				${inviteUrl ? `<p><a href="${inviteUrl}">Upload a new document</a></p>` : ''}
-				<p>Please contact your agency if you have any questions.</p>
-			`,
+			html,
 		});
 
 		return null;

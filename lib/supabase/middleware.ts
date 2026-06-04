@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { evaluateBillingState } from "../billing-state";
 import { getOrgRedirectPath, getUserOrganizationsResult } from "../orgs";
 import { hasEnvVars } from "../utils";
 
@@ -17,6 +18,7 @@ const PUBLIC_PREFIXES = [
   "/api/onboarding",
   "/api/references/responded",
   "/api/reminders/worker",
+  "/api/billing/expire-trials",
   "/api/settings",
   "/invite",
   "/onboarding",
@@ -32,16 +34,25 @@ const DASHBOARD_SECTIONS = new Set([
   "team",
   "audit-logs",
   "settings",
+  "billing-required",
 ]);
+
+// Sections that remain accessible even when billing is canceled.
+// "settings" lets the user reach the billing page to resubscribe.
+// "billing-required" is the destination of the redirect itself.
+const BILLING_GATE_EXEMPT = new Set(["settings", "billing-required"]);
+
+const BILLING_STATUS_COOKIE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 function redirectWithCookies(
   request: NextRequest,
   supabaseResponse: NextResponse,
-  pathname: string,
+  destination: string,
 ) {
   const url = request.nextUrl.clone();
+  const [pathname, search = ""] = destination.split("?");
   url.pathname = pathname;
-  url.search = "";
+  url.search = search ? `?${search}` : "";
 
   const response = NextResponse.redirect(url);
   supabaseResponse.cookies.getAll().forEach((cookie) => {
@@ -68,6 +79,70 @@ function continueWithCurrentOrg(
 
 function jsonUnauthorized() {
   return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+function getCreateOrgContinuationPath(request: NextRequest) {
+  if (request.nextUrl.searchParams.get("next") !== "create-org") return null;
+
+  const params = new URLSearchParams();
+  for (const key of ["orgName", "orgSlug", "plan", "interval"]) {
+    const value = request.nextUrl.searchParams.get(key);
+    if (value) params.set(key, value);
+  }
+
+  return `/create-org${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+/**
+ * Returns the cached billing status from a short-lived cookie, or queries
+ * the database. Returns null if the record cannot be read (no access / no record).
+ * Safe default: allow through.
+ */
+async function getOrgBillingState(
+  supabase: ReturnType<typeof createServerClient>,
+  request: NextRequest,
+  orgId: string,
+  orgSlug: string,
+): Promise<{ state: ReturnType<typeof evaluateBillingState>; fromCache: boolean }> {
+  const cacheKey = `bs_${orgSlug}`;
+  const cached = request.cookies.get(cacheKey)?.value;
+
+  if (cached) {
+    const parts = cached.split("|");
+    const status = parts[0];
+    const gracePeriodEndsAt = parts[1] || null;
+    const setAt = parseInt(parts[2] ?? "0", 10);
+    if (Date.now() - setAt < BILLING_STATUS_COOKIE_TTL_MS) {
+      return {
+        state: evaluateBillingState({
+          status,
+          grace_period_ends_at: gracePeriodEndsAt,
+        }),
+        fromCache: true,
+      };
+    }
+  }
+
+  const { data } = await supabase
+    .from("organization_billing")
+    .select("plan, status, grace_period_ends_at")
+    .eq("organization_id", orgId)
+    .maybeSingle();
+
+  return { state: evaluateBillingState(data), fromCache: false };
+}
+
+function setBillingStatusCookie(
+  response: NextResponse,
+  orgSlug: string,
+  state: ReturnType<typeof evaluateBillingState>,
+) {
+  response.cookies.set(`bs_${orgSlug}`, `${state.status}|${state.gracePeriodEndsAt ?? ""}|${Date.now()}`, {
+    path: "/",
+    sameSite: "lax",
+    httpOnly: true,
+    maxAge: Math.ceil(BILLING_STATUS_COOKIE_TTL_MS / 1000),
+  });
 }
 
 export async function updateSession(request: NextRequest) {
@@ -152,6 +227,13 @@ export async function updateSession(request: NextRequest) {
 
   // Platform admin bypass — check before tenant org logic runs.
   // RLS allows users to query their own platform_memberships row.
+  const createOrgContinuationPath = shouldRedirectAuthenticatedAuthPath
+    ? getCreateOrgContinuationPath(request)
+    : null;
+  if (createOrgContinuationPath) {
+    return redirectWithCookies(request, supabaseResponse, createOrgContinuationPath);
+  }
+
   const { data: platformMembership } = await supabase
     .from('platform_memberships')
     .select('id')
@@ -210,6 +292,36 @@ export async function updateSession(request: NextRequest) {
 
   if (!currentOrg) {
     return redirectWithCookies(request, supabaseResponse, orgRedirectPath);
+  }
+
+  // Billing gate: redirect canceled organizations to the billing-required page.
+  // Exempt settings (so the user can reach the billing page to resubscribe) and
+  // billing-required itself to avoid an infinite redirect loop.
+  if (!BILLING_GATE_EXEMPT.has(maybeSection)) {
+    const { state: billingState, fromCache } = await getOrgBillingState(
+      supabase,
+      request,
+      currentOrg.id,
+      currentOrg.slug,
+    );
+
+    if (!billingState.canAccessApp) {
+      const { data: canManageBilling } = await supabase.rpc('has_org_permission', {
+        p_org_id: currentOrg.id,
+        p_permission_code: 'billing.manage',
+      });
+      const redirectResponse = redirectWithCookies(
+        request,
+        supabaseResponse,
+        canManageBilling
+          ? `/${currentOrg.slug}/settings/billing`
+          : `/${currentOrg.slug}/billing-required`,
+      );
+      if (!fromCache) setBillingStatusCookie(redirectResponse, currentOrg.slug, billingState);
+      return redirectResponse;
+    }
+
+    if (!fromCache) setBillingStatusCookie(supabaseResponse, currentOrg.slug, billingState);
   }
 
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
