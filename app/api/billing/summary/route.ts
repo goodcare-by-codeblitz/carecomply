@@ -1,6 +1,7 @@
 import {
 	DEFAULT_BILLING_SUMMARY,
 	calculateBillingPriceEstimate,
+	getBillingEntitlements,
 	normalizeBillingPlan,
 	normalizeBillingStatus,
 	type BillingInterval,
@@ -55,7 +56,7 @@ export async function GET(request: Request) {
 			admin
 				.from('organization_billing')
 				.select(
-					'plan, interval, status, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end, trial_start, trial_end, grace_period_ends_at, cancel_at_period_end',
+					'plan, interval, status, stripe_customer_id, stripe_subscription_id, stripe_price_id, current_period_start, current_period_end, trial_start, trial_end, grace_period_ends_at, cancel_at_period_end, scheduled_plan, scheduled_interval, scheduled_effective_at, stripe_subscription_schedule_id',
 				)
 				.eq('organization_id', organization.id)
 				.maybeSingle(),
@@ -77,6 +78,21 @@ export async function GET(request: Request) {
 		status: billing?.status,
 		grace_period_ends_at: billing?.grace_period_ends_at,
 	});
+	const entitlements = getBillingEntitlements(normalizedPlan, normalizedStatus);
+	const scheduledPlan = normalizeScheduledBillingPlan(billing?.scheduled_plan);
+	const scheduledInterval = normalizeScheduledBillingInterval(
+		billing?.scheduled_interval,
+	);
+	const scheduledChange =
+		scheduledPlan && scheduledInterval && billing?.scheduled_effective_at
+			? {
+					plan: scheduledPlan,
+					interval: scheduledInterval,
+					effectiveAt: billing.scheduled_effective_at,
+					stripeSubscriptionScheduleId:
+						billing.stripe_subscription_schedule_id ?? null,
+				}
+			: null;
 	const summary = billing
 		? {
 				...billing,
@@ -84,6 +100,8 @@ export async function GET(request: Request) {
 				status: normalizedStatus,
 				interval,
 				billingAccess,
+				entitlements,
+				scheduledChange,
 				cancel_at_period_end: Boolean(billing.cancel_at_period_end),
 				isConfigured: Boolean(
 					billing.stripe_customer_id ||
@@ -91,7 +109,11 @@ export async function GET(request: Request) {
 						billing.stripe_price_id,
 				),
 		}
-		: DEFAULT_BILLING_SUMMARY;
+		: {
+				...DEFAULT_BILLING_SUMMARY,
+				entitlements,
+				scheduledChange: null,
+			};
 
 	return json({
 		billing: summary,
@@ -135,6 +157,18 @@ function normalizeBillingInterval(
 	interval: string | null | undefined,
 ): BillingInterval {
 	return interval === 'yearly' ? 'yearly' : 'monthly';
+}
+
+function normalizeScheduledBillingPlan(plan: string | null | undefined) {
+	if (plan === 'starter' || plan === 'pro') return plan;
+	return null;
+}
+
+function normalizeScheduledBillingInterval(
+	interval: string | null | undefined,
+) {
+	if (interval === 'monthly' || interval === 'yearly') return interval;
+	return null;
 }
 
 function json(body: unknown, status = 200) {

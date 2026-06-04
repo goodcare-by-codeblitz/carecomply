@@ -201,6 +201,7 @@ export default function BillingSettingsPage() {
 			const payload = (await response.json()) as {
 				message?: string;
 				url?: string;
+				scheduled?: boolean;
 			};
 
 			if (!response.ok) {
@@ -285,6 +286,9 @@ export default function BillingSettingsPage() {
 				}).format(new Date(value))
 			: null;
 	const formattedPeriodEnd = formatBillingDate(periodEnd);
+	const formattedScheduledChange = formatBillingDate(
+		billing.scheduledChange?.effectiveAt,
+	);
 	const formattedTrialStart = formatBillingDate(billing.trial_start);
 	const formattedTrialEnd = formatBillingDate(billing.trial_end);
 	const formatCurrency = (value: number) =>
@@ -365,6 +369,12 @@ export default function BillingSettingsPage() {
 									Trial: {formattedTrialStart} to {formattedTrialEnd}
 								</p>
 							)}
+							{billing.scheduledChange && formattedScheduledChange && (
+								<p className='mt-1 text-[12px] font-medium text-warn'>
+									Scheduled change: {billing.scheduledChange.plan} /{' '}
+									{billing.scheduledChange.interval} on {formattedScheduledChange}
+								</p>
+							)}
 						</div>
 					</div>
 					<Button
@@ -381,6 +391,19 @@ export default function BillingSettingsPage() {
 					<p className='text-[12px] text-slate-400'>
 						Stripe subscription: {billing.stripe_subscription_id}
 					</p>
+				)}
+				{billing.scheduledChange && formattedScheduledChange && (
+					<div className='rounded-xl border border-warn/30 bg-warn-50 px-4 py-3 text-[13px] text-slate-700'>
+						<p className='font-semibold text-ink'>Downgrade scheduled</p>
+						<p>
+							Pro access remains available until {formattedScheduledChange}.
+							Your subscription will move to{' '}
+							{getPricingPlan(billing.scheduledChange.plan)?.name ??
+								billing.scheduledChange.plan}{' '}
+							{billing.scheduledChange.interval} at the end of the current
+							billing period.
+						</p>
+					</div>
 				)}
 				{priceEstimate && (
 					<div className='rounded-xl border border-line p-4'>
@@ -440,8 +463,8 @@ export default function BillingSettingsPage() {
 					<div className='mb-4'>
 						<h3 className='text-[13.5px] font-medium text-ink'>Change plan</h3>
 						<p className='text-[12.5px] text-slate-500'>
-							Choose a package and interval. Existing subscriptions are updated
-							with Stripe proration instead of creating another subscription.
+							Upgrades are applied immediately with Stripe proration. Downgrades
+							are scheduled for the end of the current billing period.
 						</p>
 					</div>
 					<div className='grid gap-3 md:grid-cols-[1fr_160px_auto] md:items-end'>
@@ -505,6 +528,12 @@ export default function BillingSettingsPage() {
 					{selectedPlan && (
 						<p className='mt-3 text-[12px] text-slate-400'>
 							{selectedPlan.description}
+						</p>
+					)}
+					{billing.plan === 'pro' && selectedBillingPlan === 'starter' && (
+						<p className='mt-2 text-[12px] text-warn'>
+							This downgrade will be scheduled for the end of your current
+							billing period, so Pro access stays active until then.
 						</p>
 					)}
 				</div>

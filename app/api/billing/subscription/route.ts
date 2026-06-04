@@ -8,6 +8,7 @@ import {
 	type BillingStatus,
 } from '@/lib/billing';
 import { createUserAuditLog } from '@/lib/audit-server';
+import { getSubscriptionChangeMode } from '@/lib/billing-subscription-change';
 import { captureBillingException } from '@/lib/billing-monitoring';
 import { billingStripeErrorResponse } from '@/lib/billing-stripe-errors';
 import { PERMISSIONS } from '@/lib/permissions';
@@ -210,6 +211,130 @@ export async function POST(request: Request) {
 		});
 	}
 
+	const changeMode = getSubscriptionChangeMode({
+		currentPlan: billing.plan,
+		targetPlan: plan.id,
+	});
+
+	if (changeMode === 'scheduled_downgrade') {
+		const periodEnd = getSubscriptionPeriodEnd(subscription);
+		if (!periodEnd) {
+			return NextResponse.json(
+				{
+					ok: false,
+					message:
+						'This downgrade could not be scheduled because Stripe did not provide a current period end.',
+				},
+				{ status: 409 },
+			);
+		}
+
+		let schedule: Stripe.SubscriptionSchedule;
+		try {
+			schedule = await createOrUpdateDowngradeSchedule({
+				stripe,
+				subscription,
+				item,
+				targetPriceId: priceId,
+				periodEnd,
+				metadata: {
+					organization_id: organization.id,
+					user_id: user.id,
+					plan: plan.id,
+					interval,
+				},
+			});
+		} catch (error) {
+			captureBillingException(error, {
+				operation: 'subscription_schedule_downgrade',
+				organizationId: organization.id,
+				stripeSubscriptionId: subscription.id,
+				extra: { plan: plan.id, interval, stripe_price_id: priceId },
+			});
+			return billingStripeErrorResponse(error, {
+				code: 'stripe_subscription_update_failed',
+				message: 'Subscription downgrade could not be scheduled.',
+			});
+		}
+
+		const effectiveAt = fromStripeTimestamp(periodEnd);
+		const admin = createAdminClient();
+		const { error: scheduleUpdateError } = await admin
+			.from('organization_billing')
+			.update({
+				scheduled_plan: plan.id,
+				scheduled_interval: interval,
+				scheduled_effective_at: effectiveAt,
+				stripe_subscription_schedule_id: schedule.id,
+				last_billing_state_change_at: new Date().toISOString(),
+			})
+			.eq('organization_id', organization.id);
+
+		if (scheduleUpdateError) {
+			console.error('[billing-subscription] failed to save scheduled downgrade', {
+				organizationId: organization.id,
+				stripeSubscriptionScheduleId: schedule.id,
+				error: scheduleUpdateError,
+			});
+			return NextResponse.json(
+				{
+					ok: false,
+					message:
+						'Stripe scheduled the downgrade, but billing could not be updated locally. Please refresh shortly.',
+				},
+				{ status: 500 },
+			);
+		}
+
+		await createUserAuditLog({
+			action: 'billing.subscription_change_requested',
+			entityType: 'billing',
+			organizationId: organization.id,
+			entityId: organization.id,
+			entityName: `${plan.name} ${interval}`,
+			details: {
+				before: {
+					plan: normalizeBillingPlan(billing.plan),
+					stripe_price_id: item.price.id,
+					stripe_subscription_status: subscription.status,
+				},
+				after: {
+					plan: plan.id,
+					plan_name: plan.name,
+					interval,
+					stripe_price_id: priceId,
+				},
+				stripe_subscription_id: subscription.id,
+				stripe_subscription_schedule_id: schedule.id,
+				scheduled_effective_at: effectiveAt,
+				local_access_updated: false,
+				permission_checked: PERMISSIONS.BILLING_MANAGE,
+				outcome: 'subscription_downgrade_scheduled',
+			},
+			request,
+		});
+
+		return NextResponse.json({
+			ok: true,
+			scheduled: true,
+			localAccessUpdated: false,
+			scheduledChange: {
+				plan: plan.id,
+				interval,
+				effectiveAt,
+				stripeSubscriptionScheduleId: schedule.id,
+			},
+			message: `Downgrade scheduled. Pro access remains available until ${new Intl.DateTimeFormat(
+				'en-GB',
+				{
+					day: 'numeric',
+					month: 'short',
+					year: 'numeric',
+				},
+			).format(new Date(effectiveAt))}.`,
+		});
+	}
+
 	let updatedSubscription: Stripe.Subscription;
 	try {
 		updatedSubscription = await stripe.subscriptions.update(subscription.id, {
@@ -291,6 +416,84 @@ export async function POST(request: Request) {
 			? 'Plan upgraded. Pro features are now available.'
 			: 'Subscription change submitted. Billing will update after Stripe confirms it.',
 	});
+}
+
+function getSubscriptionPeriodEnd(subscription: Stripe.Subscription) {
+	return (
+		subscription as Stripe.Subscription & { current_period_end?: number | null }
+	).current_period_end ?? null;
+}
+
+function getSubscriptionPeriodStart(subscription: Stripe.Subscription) {
+	return (
+		subscription as Stripe.Subscription & { current_period_start?: number | null }
+	).current_period_start ?? Math.floor(Date.now() / 1000);
+}
+
+function fromStripeTimestamp(timestamp: number) {
+	return new Date(timestamp * 1000).toISOString();
+}
+
+async function createOrUpdateDowngradeSchedule({
+	stripe,
+	subscription,
+	item,
+	targetPriceId,
+	periodEnd,
+	metadata,
+}: {
+	stripe: Stripe;
+	subscription: Stripe.Subscription;
+	item: Stripe.SubscriptionItem;
+	targetPriceId: string;
+	periodEnd: number;
+	metadata: Record<string, string>;
+}) {
+	const existingScheduleId = getStripeId(subscription.schedule);
+	const schedule = existingScheduleId
+		? await stripe.subscriptionSchedules.retrieve(existingScheduleId)
+		: await stripe.subscriptionSchedules.create({
+				from_subscription: subscription.id,
+			});
+	const phaseStart =
+		schedule.current_phase?.start_date ?? getSubscriptionPeriodStart(subscription);
+
+	return await stripe.subscriptionSchedules.update(schedule.id, {
+		end_behavior: 'release',
+		metadata,
+		phases: [
+			{
+				start_date: phaseStart,
+				end_date: periodEnd,
+				items: [
+					{
+						price: item.price.id,
+						quantity: item.quantity ?? 1,
+					},
+				],
+				metadata: {
+					...subscription.metadata,
+					organization_id: metadata.organization_id,
+					plan: normalizeBillingPlan(subscription.metadata?.plan),
+					interval: subscription.metadata?.interval ?? 'monthly',
+				},
+			},
+			{
+				items: [
+					{
+						price: targetPriceId,
+						quantity: item.quantity ?? 1,
+					},
+				],
+				metadata,
+			},
+		],
+	});
+}
+
+function getStripeId(value: string | { id: string } | null | undefined) {
+	if (!value) return null;
+	return typeof value === 'string' ? value : value.id;
 }
 
 async function getStripePrice(stripe: Stripe, priceId: string) {
@@ -380,6 +583,10 @@ async function applyImmediateUpgrade({
 					? null
 					: undefined,
 			cancel_at_period_end: subscription.cancel_at_period_end,
+			scheduled_plan: null,
+			scheduled_interval: null,
+			scheduled_effective_at: null,
+			stripe_subscription_schedule_id: null,
 		})
 		.eq('organization_id', organizationId);
 

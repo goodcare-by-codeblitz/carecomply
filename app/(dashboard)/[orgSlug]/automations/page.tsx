@@ -230,7 +230,7 @@ export default function AutomationsPage() {
 	};
 
 	const openEditDialog = (reminder: Reminder) => {
-		if (reminder.is_system) return;
+		if (reminder.is_system || !billing?.isPro) return;
 		setForm({
 			id: reminder.id,
 			name: reminder.name,
@@ -247,6 +247,7 @@ export default function AutomationsPage() {
 
 	const saveReminder = async () => {
 		if (!organizationId) return;
+		if (!billing?.isPro) return;
 
 		const triggerDays = Number(form.triggerDays);
 		if (!form.name.trim() || !Number.isInteger(triggerDays) || triggerDays < 0) {
@@ -297,6 +298,7 @@ export default function AutomationsPage() {
 
 	const deleteReminder = async (reminder: Reminder) => {
 		if (!organizationId || reminder.is_system) return;
+		if (!billing?.isPro) return;
 
 		setDeletingId(reminder.id);
 		try {
@@ -343,10 +345,12 @@ export default function AutomationsPage() {
 							Manage document expiry reminders, escalation, and reminder activity.
 						</p>
 					</div>
-					<Button type='button' onClick={openCreateDialog}>
-						<Plus className='h-3.5 w-3.5' />
-						New automation
-					</Button>
+					{billing?.isPro && (
+						<Button type='button' onClick={openCreateDialog}>
+							<Plus className='h-3.5 w-3.5' />
+							New automation
+						</Button>
+					)}
 				</div>
 			</div>
 
@@ -376,8 +380,9 @@ export default function AutomationsPage() {
 							title='Custom Pro Automations'
 							description='Per-document-type reminders and escalation rules.'
 							reminders={customReminders}
-							onEdit={openEditDialog}
-							onDelete={deleteReminder}
+							readOnly={!billing?.isPro}
+							onEdit={billing?.isPro ? openEditDialog : undefined}
+							onDelete={billing?.isPro ? deleteReminder : undefined}
 							deletingId={deletingId}
 							emptyAction={billing?.isPro ? openCreateDialog : undefined}
 						/>

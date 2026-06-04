@@ -16,12 +16,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import type { BillingEntitlements } from '@/lib/billing';
 import { getCurrentOrgBySlug, isMissingRelationError } from '@/lib/orgs';
 import { createClient } from '@/lib/supabase/client';
 import { useOrgStore } from '@/stores/auth-store';
 import {
 	ChevronDown,
 	ChevronRight,
+	AlertCircle,
 	Loader2,
 	Plus,
 	ShieldCheck,
@@ -45,6 +47,12 @@ type RoleWithPermissions = {
 	description: string | null;
 	is_system_role: boolean | null;
 	permissionIds: string[];
+};
+
+type BillingSummaryPayload = {
+	billing?: {
+		entitlements?: BillingEntitlements;
+	};
 };
 
 function normalizeRole(row: unknown): RoleWithPermissions {
@@ -104,6 +112,10 @@ export default function RolesSettingsPage() {
 		null,
 	);
 	const [deletingRoleId, setDeletingRoleId] = useState<string | null>(null);
+	const [entitlements, setEntitlements] = useState<BillingEntitlements | null>(
+		null,
+	);
+	const canManageCustomRoles = Boolean(entitlements?.customRoles);
 
 	useEffect(() => {
 		if (storeOrg) {
@@ -146,7 +158,7 @@ export default function RolesSettingsPage() {
 
 		setIsLoadingRoles(true);
 		const supabase = createClient();
-		const [rolesResult, permissionsResult] = await Promise.all([
+		const [rolesResult, permissionsResult, billingResult] = await Promise.all([
 			supabase
 				.from('roles')
 				.select(
@@ -159,6 +171,14 @@ export default function RolesSettingsPage() {
 				.select('id, code, name, description, category')
 				.order('category')
 				.order('name'),
+			fetch(`/api/billing/summary?orgId=${encodeURIComponent(organization.id)}`, {
+				cache: 'no-store',
+			})
+				.then(async (response) => {
+					if (!response.ok) return null;
+					return (await response.json()) as BillingSummaryPayload;
+				})
+				.catch(() => null),
 		]);
 
 		setIsLoadingRoles(false);
@@ -182,6 +202,8 @@ export default function RolesSettingsPage() {
 		} else {
 			setPermissions((permissionsResult.data ?? []) as Permission[]);
 		}
+
+		setEntitlements(billingResult?.billing?.entitlements ?? null);
 	}, [organization]);
 
 	useEffect(() => {
@@ -191,6 +213,7 @@ export default function RolesSettingsPage() {
 	const handleCreateRole = async (event: React.FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (!organization) return;
+		if (!canManageCustomRoles) return;
 
 		const roleName = customRoleName.trim();
 		if (!roleName) {
@@ -242,6 +265,7 @@ export default function RolesSettingsPage() {
 		checked: boolean,
 	) => {
 		if (!organization) return;
+		if (!canManageCustomRoles) return;
 
 		if (role.is_system_role) {
 			toast.error('Protected system roles cannot be edited');
@@ -295,6 +319,7 @@ export default function RolesSettingsPage() {
 
 	const deleteRole = async (role: RoleWithPermissions) => {
 		if (!organization) return;
+		if (!canManageCustomRoles) return;
 
 		if (role.is_system_role) {
 			toast.error('Protected system roles cannot be deleted');
@@ -351,42 +376,57 @@ export default function RolesSettingsPage() {
 					</p>
 				</div>
 				<div className='p-5'>
-					<form
-						onSubmit={handleCreateRole}
-						className='grid gap-3 rounded-xl border border-line p-4 md:grid-cols-[1fr_1.4fr_auto] md:items-end'>
-						<div className='space-y-2'>
-							<Label htmlFor='role-name' className='text-[13px] font-medium text-ink'>
-								Custom role
-							</Label>
-							<Input
-								id='role-name'
-								value={customRoleName}
-								onChange={(event) => setCustomRoleName(event.target.value)}
-								placeholder='Compliance lead'
-								className='text-[13.5px]'
-							/>
+					{canManageCustomRoles ? (
+						<form
+							onSubmit={handleCreateRole}
+							className='grid gap-3 rounded-xl border border-line p-4 md:grid-cols-[1fr_1.4fr_auto] md:items-end'>
+							<div className='space-y-2'>
+								<Label htmlFor='role-name' className='text-[13px] font-medium text-ink'>
+									Custom role
+								</Label>
+								<Input
+									id='role-name'
+									value={customRoleName}
+									onChange={(event) => setCustomRoleName(event.target.value)}
+									placeholder='Compliance lead'
+									className='text-[13.5px]'
+								/>
+							</div>
+							<div className='space-y-2'>
+								<Label htmlFor='role-description' className='text-[13px] font-medium text-ink'>
+									Description
+								</Label>
+								<Textarea
+									id='role-description'
+									value={customRoleDescription}
+									onChange={(event) => setCustomRoleDescription(event.target.value)}
+									placeholder='What this role is allowed to do'
+									className='text-[13.5px]'
+								/>
+							</div>
+							<Button type='submit' disabled={isCreatingRole || !roleSetupReady}>
+								{isCreatingRole ? (
+									<Loader2 className='mr-2 h-4 w-4 animate-spin' />
+								) : (
+									<Plus className='mr-2 h-4 w-4' />
+								)}
+								Create role
+							</Button>
+						</form>
+					) : (
+						<div className='flex items-start gap-3 rounded-xl border border-warn/30 bg-warn-50 px-4 py-3.5'>
+							<AlertCircle className='mt-0.5 h-4 w-4 shrink-0 text-warn' />
+							<div>
+								<p className='text-[13.5px] font-semibold text-ink'>
+									Custom roles are available on Pro
+								</p>
+								<p className='mt-0.5 text-[13px] text-slate-600'>
+									Starter workspaces can view protected system roles, but custom
+									role creation and permission editing are hidden until upgrade.
+								</p>
+							</div>
 						</div>
-						<div className='space-y-2'>
-							<Label htmlFor='role-description' className='text-[13px] font-medium text-ink'>
-								Description
-							</Label>
-							<Textarea
-								id='role-description'
-								value={customRoleDescription}
-								onChange={(event) => setCustomRoleDescription(event.target.value)}
-								placeholder='What this role is allowed to do'
-								className='text-[13.5px]'
-							/>
-						</div>
-						<Button type='submit' disabled={isCreatingRole || !roleSetupReady}>
-							{isCreatingRole ? (
-								<Loader2 className='mr-2 h-4 w-4 animate-spin' />
-							) : (
-								<Plus className='mr-2 h-4 w-4' />
-							)}
-							Create role
-						</Button>
-					</form>
+					)}
 
 					{!roleSetupReady && (
 						<div className='mt-4 rounded-xl border border-dashed border-line p-4 text-[13px] text-slate-500'>
@@ -449,7 +489,7 @@ export default function RolesSettingsPage() {
 												</div>
 											</button>
 
-											{!role.is_system_role && (
+											{canManageCustomRoles && !role.is_system_role && (
 												<AlertDialog>
 													<AlertDialogTrigger asChild>
 														<Button
@@ -509,6 +549,7 @@ export default function RolesSettingsPage() {
 																			checked={checked}
 																			disabled={
 																				Boolean(role.is_system_role) ||
+																				!canManageCustomRoles ||
 																				updatingPermission === updateKey
 																			}
 																			onCheckedChange={(value) =>

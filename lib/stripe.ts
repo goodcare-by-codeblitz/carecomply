@@ -9,6 +9,6 @@ export function getStripe() {
 		throw new Error('STRIPE_SECRET_KEY is not configured.');
 	}
 
-	stripe ??= new Stripe(secretKey, { apiVersion: '2025-03-31.basil' });
+	stripe ??= new Stripe(secretKey, { apiVersion: '2025-10-29.clover' });
 	return stripe;
 }

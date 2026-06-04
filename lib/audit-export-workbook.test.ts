@@ -46,6 +46,7 @@ describe('audit export workbook', () => {
 				manifestHash: 'manifest-hash',
 				signature: 'signature',
 			},
+			{ worksheetProtectionSpinCount: 1 },
 		);
 		const workbook = new ExcelJS.Workbook();
 		await workbook.xlsx.load(buffer);

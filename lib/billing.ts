@@ -28,6 +28,10 @@ export type OrganizationBillingSummary = {
 	stripe_customer_id?: string | null;
 	stripe_subscription_id?: string | null;
 	stripe_price_id?: string | null;
+	scheduled_plan?: BillingPlan | null;
+	scheduled_interval?: BillingInterval | null;
+	scheduled_effective_at?: string | null;
+	stripe_subscription_schedule_id?: string | null;
 	current_period_start?: string | null;
 	current_period_end?: string | null;
 	trial_start?: string | null;
@@ -42,6 +46,13 @@ export type OrganizationBillingSummary = {
 		reason: string;
 		gracePeriodEndsAt: string | null;
 	};
+	entitlements?: BillingEntitlements;
+	scheduledChange?: {
+		plan: BillingPlan;
+		interval: BillingInterval;
+		effectiveAt: string;
+		stripeSubscriptionScheduleId?: string | null;
+	} | null;
 	isConfigured: boolean;
 };
 
@@ -221,6 +232,10 @@ export const DEFAULT_BILLING_SUMMARY: OrganizationBillingSummary = {
 	stripe_customer_id: null,
 	stripe_subscription_id: null,
 	stripe_price_id: null,
+	scheduled_plan: null,
+	scheduled_interval: null,
+	scheduled_effective_at: null,
+	stripe_subscription_schedule_id: null,
 	current_period_start: null,
 	current_period_end: null,
 	trial_start: null,
@@ -235,6 +250,17 @@ export const DEFAULT_BILLING_SUMMARY: OrganizationBillingSummary = {
 		reason: 'not_configured',
 		gracePeriodEndsAt: null,
 	},
+	entitlements: {
+		plan: 'starter',
+		status: 'not_configured',
+		isPro: false,
+		advancedAudit: false,
+		customAutomations: false,
+		customRoles: false,
+		excelAuditExport: false,
+		fullAuditHistory: false,
+	},
+	scheduledChange: null,
 	isConfigured: false,
 };
 

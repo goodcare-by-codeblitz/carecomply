@@ -22,6 +22,9 @@ export async function buildAuditExportWorkbook(
 		manifestHash: string;
 		signature: string;
 	},
+	options: {
+		worksheetProtectionSpinCount?: number;
+	} = {},
 ) {
 	const workbook = new ExcelJS.Workbook();
 	workbook.creator = 'CareComply';
@@ -38,6 +41,9 @@ export async function buildAuditExportWorkbook(
 			sheet.protect(process.env.AUDIT_EXPORT_SIGNING_SECRET ?? randomUUID(), {
 				selectLockedCells: true,
 				selectUnlockedCells: true,
+				...(options.worksheetProtectionSpinCount == null
+					? {}
+					: { spinCount: options.worksheetProtectionSpinCount }),
 			}),
 		),
 	);

@@ -328,6 +328,17 @@ async function handleSubscriptionEvent(
 		planFromPrice?.interval ?? getBillingInterval(subscription.metadata?.interval);
 
 	const mappedStatus = mapSubscriptionStatus(subscription.status);
+	const { data: existingBilling } = await supabase
+		.from('organization_billing')
+		.select('scheduled_plan, scheduled_interval, stripe_subscription_schedule_id')
+		.eq('organization_id', organizationId)
+		.maybeSingle();
+	const scheduledTargetApplied =
+		Boolean(plan) &&
+		existingBilling?.scheduled_plan === plan &&
+		(!existingBilling.scheduled_interval ||
+			!interval ||
+			existingBilling.scheduled_interval === interval);
 
 	await upsertOrganizationBilling(supabase, organizationId, {
 		...(plan ? { plan } : {}),
@@ -342,6 +353,14 @@ async function handleSubscriptionEvent(
 		trial_end: fromStripeTimestamp(subscription.trial_end),
 		cancel_at_period_end: subscription.cancel_at_period_end,
 		last_billing_state_change_at: new Date().toISOString(),
+		...(scheduledTargetApplied
+			? {
+					scheduled_plan: null,
+					scheduled_interval: null,
+					scheduled_effective_at: null,
+					stripe_subscription_schedule_id: null,
+				}
+			: {}),
 		...(mappedStatus === 'active' || mappedStatus === 'trialing'
 			? { grace_period_ends_at: null }
 			: {}),
@@ -385,7 +404,11 @@ async function handleSubscriptionCanceled(
 
 	const priceId = subscription.items.data[0]?.price.id ?? null;
 	const planFromPrice = getPlanFromStripePriceId(priceId);
-	const planId = planFromPrice?.plan ?? plan;
+	const planId =
+		planFromPrice?.plan ??
+		getBillingPlan(subscription.metadata?.plan) ??
+		plan ??
+		'starter';
 	const pricingPlan = getPricingPlan(planId);
 	const planName = `CareComply ${pricingPlan?.name ?? 'Starter'}`;
 
@@ -547,6 +570,10 @@ async function upsertOrganizationBilling(
 	pending_checkout_plan: string | null;
 	pending_checkout_interval: string | null;
 	pending_checkout_expires_at: string | null;
+	scheduled_plan: BillingPlan | null;
+	scheduled_interval: BillingInterval | null;
+	scheduled_effective_at: string | null;
+	stripe_subscription_schedule_id: string | null;
 	last_billing_state_change_at: string | null;
 	}>,
 ) {

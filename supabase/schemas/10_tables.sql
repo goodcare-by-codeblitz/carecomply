@@ -258,6 +258,10 @@ create table if not exists public.organization_billing (
   pending_checkout_plan text,
   pending_checkout_interval text,
   pending_checkout_expires_at timestamptz,
+  scheduled_plan text,
+  scheduled_interval text,
+  scheduled_effective_at timestamptz,
+  stripe_subscription_schedule_id text,
   last_billing_state_change_at timestamptz,
   cancel_at_period_end boolean not null default false,
   created_at timestamptz not null default now(),
@@ -276,12 +280,22 @@ create table if not exists public.organization_billing (
   ),
   constraint organization_billing_pending_checkout_interval_check check (
     pending_checkout_interval is null or pending_checkout_interval in ('monthly', 'yearly')
+  ),
+  constraint organization_billing_scheduled_plan_check check (
+    scheduled_plan is null or scheduled_plan in ('starter', 'pro')
+  ),
+  constraint organization_billing_scheduled_interval_check check (
+    scheduled_interval is null or scheduled_interval in ('monthly', 'yearly')
   )
 );
 
 create index if not exists idx_organization_billing_pending_checkout
 on public.organization_billing (pending_checkout_session_id)
 where pending_checkout_session_id is not null;
+
+create index if not exists idx_organization_billing_subscription_schedule
+on public.organization_billing (stripe_subscription_schedule_id)
+where stripe_subscription_schedule_id is not null;
 
 create table if not exists public.organization_invitations (
   id uuid primary key default gen_random_uuid(),

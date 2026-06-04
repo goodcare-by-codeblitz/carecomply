@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { getAuditDefaults } from './audit';
+import { getAuditDefaults, type AuditAction } from './audit';
 
 describe('audit defaults', () => {
 	it('cover all five CQC key questions', () => {
-		const representativeActions = [
+		const representativeActions: AuditAction[] = [
 			'document.approved',
 			'reference.approved',
 			'carer.updated',

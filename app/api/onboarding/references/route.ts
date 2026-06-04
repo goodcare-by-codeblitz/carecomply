@@ -99,9 +99,9 @@ export async function POST(request: Request) {
 			carerId: context.carer.id,
 			submitted: payload.references,
 			existingById: new Map(
-				((existingReferences ?? []) as ExistingReferenceLifecycle[]).map(
-					(reference) => [reference.id, reference],
-				),
+				(
+					(existingReferences ?? []) as unknown as ExistingReferenceLifecycle[]
+				).map((reference) => [reference.id, reference]),
 			),
 			now,
 		});
