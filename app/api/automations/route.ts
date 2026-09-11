@@ -1,6 +1,6 @@
 import { createUserAuditLog } from '@/lib/audit-server';
-import { requireBillingCanModify } from '@/lib/billing-guard';
 import { getBillingEntitlements } from '@/lib/billing';
+import { requireBillingCanModify } from '@/lib/billing-guard';
 import { PERMISSIONS } from '@/lib/permissions';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
@@ -86,10 +86,7 @@ export async function GET(request: Request) {
 	const orgId = searchParams.get('orgId');
 
 	if (!orgId || !z.string().uuid().safeParse(orgId).success) {
-		return json(
-			{ error: 'A valid organization id is required.' },
-			400,
-		);
+		return json({ error: 'A valid organization id is required.' }, 400);
 	}
 
 	const auth = await requireAutomationPermission(
@@ -105,7 +102,10 @@ export async function GET(request: Request) {
 	});
 
 	if (seedError) {
-		console.error('[automations] default reminders could not be ensured', seedError);
+		console.error(
+			'[automations] default reminders could not be ensured',
+			seedError,
+		);
 		warnings.push({
 			code: 'default_reminders_seed_failed',
 			message: 'Included Starter reminders could not be refreshed.',
@@ -143,7 +143,10 @@ export async function GET(request: Request) {
 		]);
 
 	if (logsResult.error) {
-		console.error('[automations] reminder logs could not be loaded', logsResult.error);
+		console.error(
+			'[automations] reminder logs could not be loaded',
+			logsResult.error,
+		);
 		warnings.push({
 			code: 'reminder_logs_unavailable',
 			message: 'Recent reminder activity could not be loaded.',
@@ -151,15 +154,22 @@ export async function GET(request: Request) {
 	}
 
 	if (remindersResult.error) {
-		console.error('[automations] reminders could not be loaded', remindersResult.error);
+		console.error(
+			'[automations] reminders could not be loaded',
+			remindersResult.error,
+		);
 		warnings.push({
 			code: 'reminders_unavailable',
-			message: 'Saved automation rules could not be loaded. Showing included reminders.',
+			message:
+				'Saved automation rules could not be loaded. Showing included reminders.',
 		});
 	}
 
 	if (documentTypesResult.error) {
-		console.error('[automations] document types could not be loaded', documentTypesResult.error);
+		console.error(
+			'[automations] document types could not be loaded',
+			documentTypesResult.error,
+		);
 		warnings.push({
 			code: 'document_types_unavailable',
 			message: 'Document types could not be loaded.',
@@ -167,7 +177,10 @@ export async function GET(request: Request) {
 	}
 
 	if (billingResult.error) {
-		console.error('[automations] billing could not be loaded', billingResult.error);
+		console.error(
+			'[automations] billing could not be loaded',
+			billingResult.error,
+		);
 		warnings.push({
 			code: 'billing_unavailable',
 			message: 'Billing status could not be loaded.',
@@ -184,7 +197,9 @@ export async function GET(request: Request) {
 			? FALLBACK_SYSTEM_REMINDERS
 			: (remindersResult.data ?? []),
 		logs: logsResult.error ? [] : (logsResult.data ?? []),
-		documentTypes: documentTypesResult.error ? [] : (documentTypesResult.data ?? []),
+		documentTypes: documentTypesResult.error
+			? []
+			: (documentTypesResult.data ?? []),
 		billing: {
 			plan: entitlements.plan,
 			status: entitlements.status,
@@ -221,14 +236,19 @@ function formatQueryError(error: unknown) {
 	};
 }
 
+/**
+ * Creates a new automation reminder.
+ * @param request
+ * @returns json response with the created reminder or an error message.
+ *
+ */
 export async function POST(request: Request) {
-	const result = reminderSchema.safeParse(await request.json().catch(() => null));
+	const result = reminderSchema.safeParse(
+		await request.json().catch(() => null),
+	);
 
 	if (!result.success) {
-		return json(
-			{ error: 'Please provide valid automation details.' },
-			400,
-		);
+		return json({ error: 'Please provide valid automation details.' }, 400);
 	}
 
 	const auth = await requireAutomationPermission(
@@ -252,10 +272,7 @@ export async function POST(request: Request) {
 		.single();
 
 	if (error || !data) {
-		return json(
-			{ error: 'Automation could not be created.' },
-			500,
-		);
+		return json({ error: 'Automation could not be created.' }, 500);
 	}
 
 	await createUserAuditLog({
@@ -281,10 +298,7 @@ export async function PATCH(request: Request) {
 	);
 
 	if (!result.success) {
-		return json(
-			{ error: 'Please provide valid automation details.' },
-			400,
-		);
+		return json({ error: 'Please provide valid automation details.' }, 400);
 	}
 
 	const auth = await requireAutomationPermission(
@@ -311,10 +325,7 @@ export async function PATCH(request: Request) {
 	}
 
 	if (existing.is_system) {
-		return json(
-			{ error: 'Included Starter reminders cannot be edited.' },
-			403,
-		);
+		return json({ error: 'Included Starter reminders cannot be edited.' }, 403);
 	}
 
 	const { data, error } = await admin
@@ -328,10 +339,7 @@ export async function PATCH(request: Request) {
 		.single();
 
 	if (error || !data) {
-		return json(
-			{ error: 'Automation could not be updated.' },
-			500,
-		);
+		return json({ error: 'Automation could not be updated.' }, 500);
 	}
 
 	await createUserAuditLog({
@@ -358,10 +366,7 @@ export async function DELETE(request: Request) {
 	);
 
 	if (!result.success) {
-		return json(
-			{ error: 'A valid automation id is required.' },
-			400,
-		);
+		return json({ error: 'A valid automation id is required.' }, 400);
 	}
 
 	const auth = await requireAutomationPermission(
@@ -401,10 +406,7 @@ export async function DELETE(request: Request) {
 		.eq('organization_id', result.data.orgId);
 
 	if (error) {
-		return json(
-			{ error: 'Automation could not be deleted.' },
-			500,
-		);
+		return json({ error: 'Automation could not be deleted.' }, 500);
 	}
 
 	await createUserAuditLog({
@@ -424,10 +426,7 @@ export async function DELETE(request: Request) {
 	return json({ ok: true });
 }
 
-async function requireAutomationPermission(
-	orgId: string,
-	permission: string,
-) {
+async function requireAutomationPermission(orgId: string, permission: string) {
 	const supabase = await createClient();
 	const {
 		data: { user },
@@ -472,13 +471,15 @@ async function requirePro(orgId: string) {
 
 	return {
 		ok: false as const,
-		response: json(
-			{ error: 'Custom automations are available on Pro.' },
-			403,
-		),
+		response: json({ error: 'Custom automations are available on Pro.' }, 403),
 	};
 }
 
+/**
+ * Converts reminder data to a row for insertion into the database.
+ * @param data The reminder data.
+ * @returns The database row.
+ */
 function toReminderRow(data: z.infer<typeof reminderSchema>) {
 	return {
 		organization_id: data.orgId,
