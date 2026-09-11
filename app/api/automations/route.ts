@@ -431,6 +431,12 @@ export async function DELETE(request: Request) {
 	return json({ ok: true });
 }
 
+/**
+ * Checks if the user has permission to manage automations for a given organization.
+ * @param orgId
+ * @param permission
+ * @returns
+ */
 async function requireAutomationPermission(orgId: string, permission: string) {
 	const supabase = await createClient();
 	const {
