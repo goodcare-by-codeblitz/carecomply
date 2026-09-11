@@ -105,13 +105,15 @@ export async function GET(request: Request) {
 				workerSecretConfigured: Boolean(process.env.REMINDER_WORKER_SECRET),
 				appUrlConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL),
 				expectedWorkerUrl,
-				expectedWorkerUrlWarning: process.env.NEXT_PUBLIC_APP_URL
+				expectedWorkerUrlWarning: process.env.REMINDER_WORKER_URL || process.env.NEXT_PUBLIC_APP_URL
 					? null
-					: 'NEXT_PUBLIC_APP_URL is missing, so the expected production worker URL cannot be inferred.',
+					: 'REMINDER_WORKER_URL or NEXT_PUBLIC_APP_URL is missing, so the expected production worker URL cannot be inferred.',
 				missingDatabaseSettings,
 				setupMessage:
 					'Platform admins can save reminder worker URL and secret from /admin/reminders. ALTER DATABASE is no longer required.',
-				expectedLocalWorkerUrl: 'http://host.docker.internal:3000/api/reminders/worker',
+				expectedLocalWorkerUrl: shouldUseLocalWorkerUrl()
+					? 'http://host.docker.internal:3000/api/reminders/worker'
+					: null,
 				database: databaseDiagnostics.raw,
 				databaseWarning: dbDiagnosticsError?.message ?? null,
 			},
@@ -156,8 +158,25 @@ function normalizeDatabaseDiagnostics(value: unknown): DatabaseDiagnostics {
 }
 
 function buildExpectedWorkerUrl() {
+	return getConfiguredWorkerUrl() ?? 'https://<your-domain>/api/reminders/worker';
+}
+
+function getConfiguredWorkerUrl() {
+	const workerUrl = process.env.REMINDER_WORKER_URL?.trim().replace(/\/+$/, '');
+	if (workerUrl) return workerUrl;
+
 	const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, '');
-	return appUrl
-		? `${appUrl}/api/reminders/worker`
-		: 'https://<your-domain>/api/reminders/worker';
+	return appUrl ? `${appUrl}/api/reminders/worker` : null;
+}
+
+function shouldUseLocalWorkerUrl() {
+	const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+	if (!appUrl) return process.env.NODE_ENV !== 'production';
+
+	try {
+		const hostname = new URL(appUrl).hostname;
+		return ['localhost', '127.0.0.1', 'host.docker.internal'].includes(hostname);
+	} catch {
+		return process.env.NODE_ENV !== 'production';
+	}
 }

@@ -18,12 +18,13 @@ Document expiry reminders are enqueued by Supabase `pg_cron` and delivered by th
 
 Required app environment variables:
 
+- `REMINDER_WORKER_URL` production: `https://comply.goodcarepro.co.uk/api/reminders/worker`
 - `REMINDER_WORKER_SECRET`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
 - `NEXT_PUBLIC_APP_URL`
 
-Required worker settings for `pg_cron` to call the worker are managed from the platform admin reminder dashboard. Local Supabase should use `http://host.docker.internal:3000/api/reminders/worker` as the worker URL because Postgres runs in Docker. Production reminder delivery needs a public deployed URL.
+Required worker settings for `pg_cron` to call the worker are managed from the platform admin reminder dashboard. The dashboard pre-fills from `REMINDER_WORKER_URL`, or derives the worker URL from `NEXT_PUBLIC_APP_URL`. Local Supabase should use `http://host.docker.internal:3000/api/reminders/worker` as the worker URL because Postgres runs in Docker. Production reminder delivery needs the public deployed URL.
 
 The legacy `app.reminder_worker_url` and `app.reminder_worker_secret` database settings are still read as a fallback, but new setup should use the dashboard-managed platform settings table.
 
