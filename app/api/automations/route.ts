@@ -360,6 +360,11 @@ export async function PATCH(request: Request) {
 	return json({ reminder: data });
 }
 
+/**
+ * Deletes a reminder.
+ * @param request
+ * @returns json response indicating success or failure
+ */
 export async function DELETE(request: Request) {
 	const result = deleteReminderSchema.safeParse(
 		await request.json().catch(() => null),
