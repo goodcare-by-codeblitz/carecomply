@@ -193,7 +193,7 @@ export async function GET(request: Request) {
 				workerSecretConfigured: Boolean(process.env.REMINDER_WORKER_SECRET),
 				appUrlConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL),
 				expectedWorkerUrl: buildExpectedWorkerUrl(),
-				localWorkerUrl: buildLocalWorkerUrl(),
+				localWorkerUrl: shouldUseLocalWorkerUrl() ? buildLocalWorkerUrl() : null,
 				workerUrl: workerUrlSetting?.value ?? null,
 				database: diagnostics ?? null,
 				databaseWarning: diagnosticsError?.message ?? null,
@@ -561,20 +561,20 @@ async function processWorkerBatch(batchSize: number) {
 }
 
 async function callWorkerBatch(batchSize: number) {
-	const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, '');
+	const workerUrl = getConfiguredWorkerUrl();
 	const secret = process.env.REMINDER_WORKER_SECRET;
-	if (!appUrl || !secret) {
+	if (!workerUrl || !secret) {
 		return {
 			ok: false,
 			status: 500,
 			payload: {
 				error:
-					'NEXT_PUBLIC_APP_URL and REMINDER_WORKER_SECRET are required to process a batch from the admin dashboard.',
+					'REMINDER_WORKER_URL or NEXT_PUBLIC_APP_URL, and REMINDER_WORKER_SECRET are required to process a batch from the admin dashboard.',
 			},
 		};
 	}
 
-	const response = await fetch(`${appUrl}/api/reminders/worker`, {
+	const response = await fetch(workerUrl, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
@@ -599,10 +599,27 @@ function normalizeRunDate(value?: string) {
 }
 
 function buildExpectedWorkerUrl() {
+	return getConfiguredWorkerUrl() ?? 'https://<your-domain>/api/reminders/worker';
+}
+
+function getConfiguredWorkerUrl() {
+	const workerUrl = process.env.REMINDER_WORKER_URL?.trim().replace(/\/+$/, '');
+	if (workerUrl) return workerUrl;
+
 	const appUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/+$/, '');
-	return appUrl
-		? `${appUrl}/api/reminders/worker`
-		: 'https://<your-domain>/api/reminders/worker';
+	return appUrl ? `${appUrl}/api/reminders/worker` : null;
+}
+
+function shouldUseLocalWorkerUrl() {
+	const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+	if (!appUrl) return process.env.NODE_ENV !== 'production';
+
+	try {
+		const hostname = new URL(appUrl).hostname;
+		return ['localhost', '127.0.0.1', 'host.docker.internal'].includes(hostname);
+	} catch {
+		return process.env.NODE_ENV !== 'production';
+	}
 }
 
 function buildLocalWorkerUrl() {
