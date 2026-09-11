@@ -33,7 +33,7 @@ type OpsData = {
 		workerSecretConfigured: boolean;
 		appUrlConfigured: boolean;
 		expectedWorkerUrl: string;
-		localWorkerUrl: string;
+		localWorkerUrl: string | null;
 		workerUrl: string | null;
 		database: Record<string, unknown> | null;
 		databaseWarning: string | null;
@@ -202,6 +202,7 @@ export function ReminderOperationsClient() {
 			data.configuration?.workerUrl ||
 			String(database.worker_url ?? '') ||
 			data.configuration?.localWorkerUrl ||
+			data.configuration?.expectedWorkerUrl ||
 			'',
 		);
 	}, [data, database.worker_url]);
@@ -326,10 +327,8 @@ export function ReminderOperationsClient() {
 							<div className='rounded-xl border border-warn/30 bg-warn-50 p-4'>
 								<p className='text-[13.5px] font-semibold text-ink'>Reminder worker settings</p>
 								<p className='mt-1 text-[13px] text-slate-600'>
-									For local Supabase, Postgres runs in Docker and should call the host app through{' '}
-									<code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>{data.configuration?.localWorkerUrl}</code>.
-									Keep <code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>NEXT_PUBLIC_APP_URL</code> as{' '}
-									<code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>http://localhost:3000</code> for app links.
+									Use the public worker URL in production. For local Supabase, Postgres runs in Docker and should call the host app through{' '}
+									<code className='rounded bg-warn/10 px-1 text-[12px] font-mono'>{data.configuration?.localWorkerUrl ?? 'http://host.docker.internal:3000/api/reminders/worker'}</code>.
 								</p>
 								<div className='mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]'>
 									<div className='space-y-1.5'>
@@ -338,7 +337,7 @@ export function ReminderOperationsClient() {
 											id='worker-url'
 											value={workerUrl}
 											onChange={(e) => setWorkerUrl(e.target.value)}
-											placeholder={data.configuration?.localWorkerUrl}
+											placeholder={data.configuration?.expectedWorkerUrl}
 										/>
 									</div>
 									<div className='space-y-1.5'>
