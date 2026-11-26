@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
 import {
 	buildReferenceReconciliation,
 	type ExistingReferenceLifecycle,
-} from './reference-reconciliation';
+} from '@/lib/reference-reconciliation';
+import { describe, expect, it } from 'vitest';
 
 const now = '2026-06-02T10:00:00.000Z';
 

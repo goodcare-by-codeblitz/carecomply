@@ -1,5 +1,5 @@
+import { getSubscriptionChangeMode } from '@/lib/billing-subscription-change';
 import { describe, expect, it } from 'vitest';
-import { getSubscriptionChangeMode } from './billing-subscription-change';
 
 describe('getSubscriptionChangeMode', () => {
 	it('applies starter to pro immediately', () => {

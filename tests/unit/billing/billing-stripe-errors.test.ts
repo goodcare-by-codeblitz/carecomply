@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
 import {
 	getBillingStripeFailure,
 	getSafeStripeErrorDebug,
-} from './billing-stripe-errors';
+} from '@/lib/billing-stripe-errors';
+import { describe, expect, it } from 'vitest';
 
 describe('billing Stripe error responses', () => {
 	it('maps missing Stripe configuration to a 501 setup response', () => {

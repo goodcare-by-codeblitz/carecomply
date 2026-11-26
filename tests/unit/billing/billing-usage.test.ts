@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest';
 import {
 	countActiveCarersFromStatuses,
 	isBillableCarerStatus,
-} from './billing-usage';
+} from '@/lib/billing-usage';
+import { describe, expect, it } from 'vitest';
 
 describe('billing usage', () => {
 	it('counts active and on_leave carers only', () => {

@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
 import {
 	blocksNewCheckout,
 	canReusePendingCheckout,
 	getCheckoutCustomerParams,
 	getCheckoutIdempotencyKey,
-} from './billing-checkout';
+} from '@/lib/billing-checkout';
+import { describe, expect, it } from 'vitest';
 
 const now = new Date('2026-05-30T12:00:00.000Z');
 
