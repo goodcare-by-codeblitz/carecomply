@@ -276,7 +276,7 @@ async function enumerateRoutes(root) {
         continue;
       }
       routes.push({ routePath, file: rel, type });
-      continue;
+
     }
   }
   return routes.sort((a, b) =>

@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import {
 	canAccessApp,
 	canModifyData,
@@ -6,7 +5,8 @@ import {
 	evaluateBillingState,
 	getPastDueGracePeriodEnd,
 	isReadOnly,
-} from './billing-state';
+} from '@/lib/billing-state';
+import { describe, expect, it } from 'vitest';
 
 const now = new Date('2026-05-30T12:00:00.000Z');
 

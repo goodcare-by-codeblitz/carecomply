@@ -1,5 +1,5 @@
+import { getAuditDefaults, type AuditAction } from '@/lib/audit';
 import { describe, expect, it } from 'vitest';
-import { getAuditDefaults, type AuditAction } from './audit';
 
 describe('audit defaults', () => {
 	it('cover all five CQC key questions', () => {

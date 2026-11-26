@@ -1,7 +1,7 @@
+import type { AuditExportManifest } from '@/lib/audit-export-signing';
+import { buildAuditExportWorkbook } from '@/lib/audit-export-workbook';
 import ExcelJS from 'exceljs';
 import { describe, expect, it } from 'vitest';
-import type { AuditExportManifest } from './audit-export-signing';
-import { buildAuditExportWorkbook } from './audit-export-workbook';
 
 describe('audit export workbook', () => {
 	it('builds a styled multi-sheet workbook with verification metadata', async () => {
@@ -63,15 +63,18 @@ describe('audit export workbook', () => {
 		const verification = workbook.getWorksheet('Verification');
 
 		expect(overview?.getCell('A1').value).toBe('CareComply CQC Audit Export');
-		expect((overview?.getCell('A1').font as Partial<ExcelJS.Font>)?.bold).toBe(true);
-		expect((overview?.getCell('A1').fill as ExcelJS.FillPattern)?.fgColor?.argb).toBe(
-			'FF111827',
-		);
-		expect((auditLogs?.getRow(1).getCell(1).font as Partial<ExcelJS.Font>)?.bold).toBe(
+		expect((overview?.getCell('A1').font as Partial<ExcelJS.Font>)?.bold).toBe(
 			true,
 		);
 		expect(
-			(auditLogs?.getRow(1).getCell(1).fill as ExcelJS.FillPattern)?.fgColor?.argb,
+			(overview?.getCell('A1').fill as ExcelJS.FillPattern)?.fgColor?.argb,
+		).toBe('FF111827');
+		expect(
+			(auditLogs?.getRow(1).getCell(1).font as Partial<ExcelJS.Font>)?.bold,
+		).toBe(true);
+		expect(
+			(auditLogs?.getRow(1).getCell(1).fill as ExcelJS.FillPattern)?.fgColor
+				?.argb,
 		).toBe('FF1F2937');
 
 		expect(auditLogs?.getRow(2).getCell('C').value).toBe('Document.approved');

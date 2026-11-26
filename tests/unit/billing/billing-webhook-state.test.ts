@@ -1,9 +1,9 @@
-import { describe, expect, it } from 'vitest';
 import {
 	addNotificationKey,
 	isProcessedDuplicate,
 	shouldProcessStripeEvent,
-} from './billing-webhook-state';
+} from '@/lib/billing-webhook-state';
+import { describe, expect, it } from 'vitest';
 
 describe('billing webhook state helpers', () => {
 	it('skips processed duplicate events', () => {

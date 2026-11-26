@@ -1,8 +1,8 @@
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createSystemAuditLog } from '@/lib/audit-server';
-import { renderEmailTemplate } from '@/emails/render';
 import { TrialEnding } from '@/emails';
+import { renderEmailTemplate } from '@/emails/render';
+import { createSystemAuditLog } from '@/lib/audit-server';
 import { getPricingPlan, normalizeBillingPlan } from '@/lib/billing';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { NextResponse } from 'next/server';
 import { Resend } from 'resend';
 
@@ -24,6 +24,8 @@ export async function POST(request: Request) {
 		return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 	}
 
+	console.log(authorization, providedSecret, configuredSecret);
+
 	const admin = createAdminClient();
 
 	// Find all trials that have expired with no Stripe subscription linked.
@@ -36,7 +38,10 @@ export async function POST(request: Request) {
 
 	if (queryError) {
 		console.error('[expire-trials] failed to query expired trials', queryError);
-		return NextResponse.json({ ok: false, error: queryError.message }, { status: 500 });
+		return NextResponse.json(
+			{ ok: false, error: queryError.message },
+			{ status: 500 },
+		);
 	}
 
 	const expiredOrgs = (expired ?? []) as ExpiredOrg[];
@@ -57,11 +62,20 @@ export async function POST(request: Request) {
 		.in('organization_id', orgIds);
 
 	if (updateError) {
-		console.error('[expire-trials] failed to update expired trials', updateError);
-		return NextResponse.json({ ok: false, error: updateError.message }, { status: 500 });
+		console.error(
+			'[expire-trials] failed to update expired trials',
+			updateError,
+		);
+		return NextResponse.json(
+			{ ok: false, error: updateError.message },
+			{ status: 500 },
+		);
 	}
 
-	console.info('[expire-trials] expired trials', { count: expiredOrgs.length, orgIds });
+	console.info('[expire-trials] expired trials', {
+		count: expiredOrgs.length,
+		orgIds,
+	});
 
 	await Promise.allSettled(
 		expiredOrgs.map((org) =>
@@ -90,12 +104,20 @@ export async function POST(request: Request) {
 		expiredOrgs.map((org) => sendTrialExpiredEmail(admin, org)),
 	);
 
-	const emailErrors = emailResults.filter((r) => r.status === 'rejected').length;
+	const emailErrors = emailResults.filter(
+		(r) => r.status === 'rejected',
+	).length;
 	if (emailErrors > 0) {
-		console.error('[expire-trials] some trial expiry emails failed', { emailErrors });
+		console.error('[expire-trials] some trial expiry emails failed', {
+			emailErrors,
+		});
 	}
 
-	return NextResponse.json({ ok: true, expired: expiredOrgs.length, emailErrors });
+	return NextResponse.json({
+		ok: true,
+		expired: expiredOrgs.length,
+		emailErrors,
+	});
 }
 
 async function sendTrialExpiredEmail(
@@ -119,7 +141,12 @@ async function sendTrialExpiredEmail(
 
 	const adminUserIds = Array.from(
 		new Set(
-			((memberships ?? []) as { user_id: string | null; roles: { name: string } | { name: string }[] | null }[])
+			(
+				(memberships ?? []) as {
+					user_id: string | null;
+					roles: { name: string } | { name: string }[] | null;
+				}[]
+			)
 				.filter((m) => {
 					const role = Array.isArray(m.roles) ? m.roles[0] : m.roles;
 					const name = role?.name?.toLowerCase();
@@ -143,17 +170,22 @@ async function sendTrialExpiredEmail(
 	const planId = normalizeBillingPlan(org.plan);
 	const pricingPlan = getPricingPlan(planId);
 	const planName = `CareComply ${pricingPlan?.name ?? 'Starter'}`;
-	const planPrice = pricingPlan?.monthlyPrice ? `£${pricingPlan.monthlyPrice}/month` : 'from £29/month';
+	const planPrice = pricingPlan?.monthlyPrice
+		? `£${pricingPlan.monthlyPrice}/month`
+		: 'from £29/month';
 
 	const trialEndDate = org.trial_end
-		? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }).format(
-				new Date(org.trial_end),
-			)
+		? new Intl.DateTimeFormat('en-GB', {
+				day: 'numeric',
+				month: 'long',
+				year: 'numeric',
+			}).format(new Date(org.trial_end))
 		: 'today';
 
 	const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? '';
 	const upgradeUrl = `${appUrl}/${orgData.slug}/settings/billing`;
-	const supportEmail = process.env.RESEND_FROM_EMAIL ?? 'support@carecomply.co.uk';
+	const supportEmail =
+		process.env.RESEND_FROM_EMAIL ?? 'support@carecomply.co.uk';
 	const apiKey = process.env.RESEND_API_KEY;
 
 	if (!apiKey) {

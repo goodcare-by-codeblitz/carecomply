@@ -1,6 +1,6 @@
+import { getPostLoginRedirect } from '@/lib/login-redirect';
+import type { UserOrganization } from '@/lib/orgs';
 import { describe, expect, it } from 'vitest';
-import { getPostLoginRedirect } from './login-redirect';
-import type { UserOrganization } from './orgs';
 
 const org = (id: string, slug: string): UserOrganization => ({
 	id,

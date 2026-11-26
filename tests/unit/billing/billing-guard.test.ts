@@ -1,6 +1,6 @@
+import { billingBlockedResponse } from '@/lib/billing-guard';
+import { evaluateBillingState } from '@/lib/billing-state';
 import { describe, expect, it } from 'vitest';
-import { evaluateBillingState } from './billing-state';
-import { billingBlockedResponse } from './billing-guard';
 
 describe('billing guard responses', () => {
 	it('returns payment required style response for read-only workspaces', async () => {
